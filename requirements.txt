@@ -1,0 +1,7 @@
+yt-dlp
+youtube-transcript-api
+chromadb
+pydantic
+fastapi
+uvicorn
+requests
