@@ -7,6 +7,7 @@ from typing import Optional, Literal
 from pydantic import BaseModel, Field
 
 # --- User Preference Types ---
+
 class UserExpertise(str, Enum):
     BEGINNER = "beginner"
     INTERMEDIATE = "intermediate"
@@ -26,8 +27,16 @@ class ContentRole(str, Enum):
 
 class ResourceType(str, Enum):
     VIDEO_SEGMENT = "video_segment"
-    TEXT_ARTICLE = "text_article"
-    BOOK_PART = "book_part"
+    BOOK = "book"
+    ARTICLE = "article"
+    TEXT = "text"
+    DOCUMENTATION = "documentation"
+    WEB = "web"
+
+class CompletionStatus(str, Enum):
+    NOT_STARTED = "not_started"
+    IN_PROGRESS = "in_progress"
+    COMPLETED = "completed"
 
 # --- Unified Resource Containers ---
 class PathResource(BaseModel):
@@ -43,6 +52,10 @@ class PathResource(BaseModel):
     # Text-specific markers
     reading_time_minutes: Optional[int] = None
     source_domain: Optional[str] = None
+    status: CompletionStatus = CompletionStatus.NOT_STARTED
+    rating: float = Field(default=4.5, ge=0.0, le=5.0, description="Curated or API rating out of 5")
+    source_platform: str = Field(default="Web", description="e.g. Google Books, Open Library, YouTube, ArXiv")
+    author_or_channel: str = Field(default="Unknown", description="Creator, Publisher, or Channel name")
 
 class VideoMeta(BaseModel):
     video_id: str
@@ -70,14 +83,34 @@ class TranscriptChunk(BaseModel):
 
 # --- Final Path Entities ---
 class CurriculumNode(BaseModel):
-    """An individual structural step or structural milestone in the learning path."""
     topic_title: str
     estimated_hours: float
+    role: ContentRole = ContentRole.FOUNDATIONAL
     resources: list[PathResource]
+    status: CompletionStatus = CompletionStatus.NOT_STARTED
+    
+    @property
+    def progress_percentage(self) -> float:
+        if not self.resources:
+            return 100.0 if self.status == CompletionStatus.COMPLETED else 0.0
+        completed = sum(1 for r in self.resources if r.status == CompletionStatus.COMPLETED)
+        return round((completed / len(self.resources)) * 100.0, 1)
 
 class MasterLearningPath(BaseModel):
-    """The globally tracked active path object representing the user's current track."""
     main_topic: str
     expertise_level: UserExpertise
     preference: ContentPreference
     steps: list[CurriculumNode]
+    
+    @property
+    def total_progress(self) -> float:
+        if not self.steps:
+            return 0.0
+        total_resources = sum(len(s.resources) for s in self.steps)
+        if total_resources == 0:
+            return 0.0
+        completed_resources = sum(
+            sum(1 for r in s.resources if r.status == CompletionStatus.COMPLETED)
+            for s in self.steps
+        )
+        return round((completed_resources / total_resources) * 100.0, 1)

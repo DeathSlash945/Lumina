@@ -2,3 +2,7 @@
 /data
 /__pycache__
 /retrieval/__pycache__
+/retrieval/providers/__pycache__
+.env
+*.db
+*.log

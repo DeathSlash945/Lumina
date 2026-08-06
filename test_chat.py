@@ -8,7 +8,7 @@ from retrieval.schemas import UserExpertise, ContentPreference
 def print_path_details(path):
     """Prints step details along with exact resource links and timestamp ranges."""
     print("\n" + "="*60)
-    print(f" 📍 LUMINA ROADMAP METRICS & DEEP LINKS ({path.main_topic})")
+    print(f"LUMINA ROADMAP METRICS & DEEP LINKS ({path.main_topic})")
     print("="*60)
     
     for i, step in enumerate(path.steps, 1):
@@ -26,11 +26,11 @@ def print_path_details(path):
             if r_type == "VIDEO_SEGMENT" and res.start_time is not None:
                 start_m, start_s = divmod(int(res.start_time), 60)
                 end_m, end_s = divmod(int(res.end_time), 60)
-                print(f"  • [{r_type}] ({r_role}) {res.title}")
+                print(f" > [{r_type}] ({r_role}) {res.title}")
                 print(f"    Link:  {res.url}")
                 print(f"    Range: {start_m}:{start_s:02d} - {end_m}:{end_s:02d}")
             else:
-                print(f"  • [{r_type}] ({r_role}) {res.title}")
+                print(f" > [{r_type}] ({r_role}) {res.title}")
                 print(f"    Link:  {res.url}")
 
 def interactive_loop():
@@ -39,9 +39,10 @@ def interactive_loop():
     print("="*60)
     
     agent = LuminaChatAgent()
+    word= input("The topic you wanna learn: ")
     
-    print("[System] Initializing path for 'Heaps'...")
-    session = agent.initialize_session("Heaps", UserExpertise.BEGINNER, ContentPreference.BALANCED)
+    print("[System] Initializing path for ", word)
+    session = agent.initialize_session(word, UserExpertise.BEGINNER, ContentPreference.BALANCED)
     
     print(f"\n[Lumina]: {session.conversation_history[-1]['content']}")
     

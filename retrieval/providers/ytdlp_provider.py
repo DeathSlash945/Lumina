@@ -13,7 +13,10 @@ from retrieval.schemas import VideoMeta, TranscriptSegment
 
 CAPTION_FETCH_RETRIES = 3
 CAPTION_FETCH_BACKOFF_BASE = 3.0  # seconds; doubles each retry
-
+params = {
+    "relevanceLanguage": "en",
+    "type": "video",
+}
 
 def _fetch_caption_json(url: str) -> dict:
     """GET the caption track with retry+backoff on 429s. YouTube rate-limits
