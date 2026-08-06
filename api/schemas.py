@@ -2,7 +2,7 @@ from pydantic import BaseModel, Field
 from retrieval.schemas import UserExpertise, ContentPreference, CompletionStatus
 
 class CreatePathRequest(BaseModel):
-    topic: str = Field(..., example="Kubernetes")
+    topic: str = Field(..., json_schema_extra={"example": "Kubernetes"})
     expertise_level: UserExpertise = Field(default=UserExpertise.INTERMEDIATE)
     content_preference: ContentPreference = Field(default=ContentPreference.BALANCED)
 
