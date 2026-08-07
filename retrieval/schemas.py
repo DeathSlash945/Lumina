@@ -85,9 +85,11 @@ class TranscriptChunk(BaseModel):
 class CurriculumNode(BaseModel):
     topic_title: str
     estimated_hours: float
+    estimated_minutes: Optional[int] = None
     role: ContentRole = ContentRole.FOUNDATIONAL
     resources: list[PathResource]
     status: CompletionStatus = CompletionStatus.NOT_STARTED
+    resource_rationale: Optional[str] = ""
     
     @property
     def progress_percentage(self) -> float:
@@ -101,6 +103,7 @@ class MasterLearningPath(BaseModel):
     expertise_level: UserExpertise
     preference: ContentPreference
     steps: list[CurriculumNode]
+    related_topics: list[str] = Field(default_factory=list)
     
     @property
     def total_progress(self) -> float:

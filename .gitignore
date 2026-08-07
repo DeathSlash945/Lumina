@@ -8,3 +8,4 @@
 *.log
 pytest.ini
 tests
+/api/__pycache__

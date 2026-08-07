@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Lumina - AI Learning Path Engine</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        :root {
+            --bg-base: #0b0c12;
+            --bg-panel: #12141d;
+            --bg-panel-2: #171927;
+            --bg-input: #0e0f17;
+            --border: #262a3d;
+            --border-soft: #1c1e2c;
+            --text-primary: #e7e6f0;
+            --text-secondary: #8d8fa8;
+            --text-muted: #5b5d72;
+            --blue-dark: #1f2b4a;
+            --blue-text: #7f9fdb;
+            --purple-dark: #241c3d;
+            --purple-mid: #4a3d78;
+            --purple-light: #b3a0e8;
+            --success-bg: #17251d;
+            --success-text: #6fae8c;
+            --success-border: #2a4536;
+        }
+
+        * { scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+
+        body { background: var(--bg-base); }
+
+        #sidebar {
+            transition: margin-left 0.2s ease, opacity 0.2s ease;
+        }
+        #sidebar.collapsed {
+            margin-left: -280px;
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        .check-box {
+            width: 18px;
+            height: 18px;
+            border-radius: 5px;
+            border: 1.5px solid var(--border);
+            background: var(--bg-input);
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+            cursor: pointer;
+            transition: background 0.15s ease, border-color 0.15s ease;
+        }
+        .check-box.checked {
+            background: var(--success-bg);
+            border-color: var(--success-border);
+        }
+        .check-box.checked svg { display: block; }
+        .check-box svg { display: none; width: 12px; height: 12px; color: var(--success-text); }
+
+        .chevron { transition: transform 0.2s ease; }
+        .chevron.open { transform: rotate(90deg); }
+
+        .flat-btn { transition: background-color 0.15s ease, border-color 0.15s ease; }
+        .step-content { transition: max-height 0.25s ease; }
+    </style>
+</head>
+<body class="text-slate-100 min-h-screen font-sans antialiased" style="background: var(--bg-base); color: var(--text-primary);">
+
+    <div class="flex items-start">
+        <!-- Sidebar -->
+        <aside id="sidebar" class="w-[280px] flex-shrink-0 h-screen sticky top-0 border-r overflow-y-auto"
+               style="background: var(--bg-panel); border-color: var(--border-soft);">
+            <div class="p-4 border-b flex justify-between items-center" style="border-color: var(--border-soft);">
+                <span class="text-xs font-bold uppercase tracking-widest" style="color: var(--purple-light);">Saved Paths</span>
+            </div>
+            <div id="sidebar-list" class="p-2 space-y-1">
+                <!-- Rendered by app.js -->
+            </div>
+        </aside>
+
+        <!-- Main Workspace -->
+        <div class="flex-1 min-w-0">
+            <div class="max-w-4xl mx-auto px-6 py-8">
+
+                <!-- Header -->
+                <div class="flex items-center gap-3 mb-6">
+                    <button id="sidebar-toggle" class="flat-btn w-9 h-9 flex items-center justify-center rounded-lg border hover:border-purple-500/40"
+                            style="background: var(--bg-panel); border-color: var(--border);">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/>
+                        </svg>
+                    </button>
+                    <h1 class="text-xl font-bold tracking-tight" style="color: var(--text-primary);">Lumina</h1>
+                    <span class="text-xs" style="color: var(--text-muted);">· Intelligent Learning Engine</span>
+
+                    <button id="settings-toggle" class="flat-btn ml-auto w-9 h-9 flex items-center justify-center rounded-lg border hover:border-purple-500/40"
+                            style="background: var(--bg-panel); border-color: var(--border);" title="API Settings">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+                        </svg>
+                    </button>
+                </div>
+
+                <!-- Settings Panel (hidden by default) -->
+                <section id="settings-panel" class="hidden rounded-2xl p-5 border mb-4" style="background: var(--bg-panel); border-color: var(--border);">
+                    <label class="block text-[11px] font-semibold uppercase tracking-wider mb-1.5" style="color: var(--text-secondary);">Your Groq API Key</label>
+                    <p class="text-[11px] mb-2" style="color: var(--text-muted);">
+                        Optional — if set, your key is used instead of the shared default. Stored only in your browser.
+                        Get one free at <a href="https://console.groq.com/keys" target="_blank" rel="noopener" style="color: var(--purple-light);">console.groq.com/keys</a>.
+                    </p>
+                    <div class="flex gap-2">
+                        <input type="password" id="groq-key-input" placeholder="gsk_..."
+                               class="flex-1 rounded-xl px-4 py-2.5 text-sm border focus:outline-none focus:border-purple-500"
+                               style="background: var(--bg-input); border-color: var(--border); color: var(--text-primary);">
+                        <button id="groq-key-save" type="button" class="flat-btn px-4 py-2.5 rounded-xl text-sm font-semibold border"
+                                style="background: var(--purple-dark); border-color: var(--purple-mid); color: var(--purple-light);">Save</button>
+                        <button id="groq-key-clear" type="button" class="flat-btn px-4 py-2.5 rounded-xl text-sm border"
+                                style="background: var(--bg-input); border-color: var(--border); color: var(--text-secondary);">Clear</button>
+                    </div>
+                    <p id="groq-key-status" class="text-[11px] mt-2" style="color: var(--success-text);"></p>
+                </section>
+
+                <!-- Generator Form -->
+                <section class="rounded-2xl p-5 border mb-4" style="background: var(--bg-panel); border-color: var(--border);">
+                    <form id="generator-form" class="grid grid-cols-1 md:grid-cols-12 gap-3">
+
+                        <div class="md:col-span-6">
+                            <label class="block text-[11px] font-semibold uppercase tracking-wider mb-1.5" style="color: var(--text-secondary);">Target Topic</label>
+                            <input type="text" id="topic-input" required placeholder="e.g. eBPF, Vector DBs, RISC-V Assembly"
+                                   class="w-full rounded-xl px-4 py-2.5 text-sm border focus:outline-none focus:border-purple-500"
+                                   style="background: var(--bg-input); border-color: var(--border); color: var(--text-primary);">
+                        </div>
+
+                        <div class="md:col-span-3">
+                            <label class="block text-[11px] font-semibold uppercase tracking-wider mb-1.5" style="color: var(--text-secondary);">Expertise Level</label>
+                            <select id="expertise-select" class="w-full rounded-xl px-3 py-2.5 text-sm border focus:outline-none"
+                                    style="background: var(--bg-input); border-color: var(--border); color: var(--text-primary);">
+                                <option value="beginner">Beginner</option>
+                                <option value="intermediate" selected>Intermediate</option>
+                                <option value="expert">Expert</option>
+                            </select>
+                        </div>
+
+                        <div class="md:col-span-3">
+                            <label class="block text-[11px] font-semibold uppercase tracking-wider mb-1.5" style="color: var(--text-secondary);">Media Focus</label>
+                            <select id="preference-select" class="w-full rounded-xl px-3 py-2.5 text-sm border focus:outline-none"
+                                    style="background: var(--bg-input); border-color: var(--border); color: var(--text-primary);">
+                                <option value="balanced" selected>Balanced</option>
+                                <option value="more_text">Docs & Books</option>
+                                <option value="more_video">Video Focus</option>
+                            </select>
+                        </div>
+
+                        <div class="md:col-span-12">
+                            <button type="submit" id="submit-btn" class="flat-btn w-full font-semibold py-2.5 rounded-xl text-sm border hover:bg-purple-900/30 transition-colors"
+                                    style="background: var(--purple-dark); border-color: var(--purple-mid); color: var(--purple-light);">
+                                <span>Generate Path</span>
+                            </button>
+                        </div>
+                    </form>
+
+                    <!-- Overall Progress -->
+                    <div id="progress-wrap" class="mt-4 hidden">
+                        <div class="flex items-center justify-between mb-1.5 text-xs" style="color: var(--text-secondary);">
+                            <span id="progress-label">0/0 steps complete</span>
+                            <span id="progress-percent" style="color: var(--purple-light);">0%</span>
+                        </div>
+                        <div class="w-full h-1.5 rounded-full overflow-hidden" style="background: var(--bg-input);">
+                            <div id="progress-fill" class="h-full rounded-full transition-all duration-300" style="width: 0%; background: linear-gradient(90deg, var(--blue-text), var(--purple-light));"></div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Output Area -->
+                <main id="output-container" class="space-y-3">
+                    <!-- Rendered by app.js -->
+                </main>
+
+                <!-- Related Topics -->
+                <section id="related-topics-wrap" class="hidden mt-5 rounded-2xl p-5 border" style="background: var(--bg-panel); border-color: var(--border);">
+                    <h3 class="text-xs font-bold uppercase tracking-widest mb-3" style="color: var(--purple-light);">Explore Next</h3>
+                    <div id="related-topics-list" class="flex flex-wrap gap-2"></div>
+                </section>
+            </div>
+        </div>
+    </div>
+
+    <script type="module" src="./src/app.js?v=3"></script>
+</body>
+</html>

@@ -1,112 +1,128 @@
-import json
-import logging
 import os
+import json
+import re
+import logging
 import requests
-from typing import Tuple
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
+from typing import Any, Dict, List, Union
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
+from dotenv import load_dotenv
+load_dotenv()
 log = logging.getLogger("lumina.llm")
 
 class LLMProviderError(Exception):
-    """Custom exception raised when an LLM provider fails."""
+    """Custom exception for LLM provider failures."""
     pass
 
 class LLMClient:
-    def __init__(self):
-        self.primary_api_key = os.getenv("GROQ_API_KEY") or os.getenv("OPENAI_API_KEY")
-        self.fallback_url = os.getenv("OLLAMA_HOST", "http://localhost:11434/api/generate")
+    def __init__(
+        self, 
+        api_key: str = None,
+        primary_api_url: str = "https://api.groq.com/openai/v1/chat/completions",
+        primary_model: str = "llama-3.3-70b-versatile",
+        fallback_model: str = "llama-3.1-8b-instant"
+    ):
+        self.api_key = api_key or os.getenv("GROQ_API_KEY")
+        self.primary_api_url = primary_api_url
+        self.primary_model = primary_model
+        self.fallback_model = fallback_model
+
+    def _extract_json(self, raw_text: str) -> Union[Dict[str, Any], List[Any]]:
+        """Cleans markdown formatting and extracts valid JSON payload."""
+        cleaned = re.sub(r'```json\s*|\s*```', '', raw_text).strip()
+        
+        json_match = re.search(r'(\{.*\}|\[.*\])', cleaned, re.DOTALL)
+        if json_match:
+            cleaned = json_match.group(1)
+            
+        return json.loads(cleaned)
 
     @retry(
-        retry=retry_if_exception_type((LLMProviderError, TimeoutError, ConnectionError)),
         stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=2, max=10),
-        reraise=False
+        wait=wait_exponential(multiplier=1, min=2, max=6),
+        retry=retry_if_exception_type(LLMProviderError),
+        reraise=True  # Reraise underlying LLMProviderError so query_with_failover catches the true cause
     )
-    def _execute_primary(self, prompt: str, system_message: str) -> str:
-        """Executes query against primary LLM provider (Groq or OpenAI) with exponential backoff."""
-        if not self.primary_api_key:
-            raise LLMProviderError("Primary API key (GROQ_API_KEY or OPENAI_API_KEY) not configured.")
-
-        is_groq = bool(os.getenv("GROQ_API_KEY"))
-        endpoint = "https://api.groq.com/openai/v1/chat/completions" if is_groq else "https://api.openai.com/v1/chat/completions"
-        default_model = "llama-3.3-70b-versatile" if is_groq else "gpt-4o-mini"
-        model = os.getenv("LLM_MODEL", default_model)
+    def _call_provider(self, prompt: str, model: str, system_prompt: str = "") -> str:
+        """Executes HTTP POST request to Groq API using OpenAI-compatible format."""
+        if not self.api_key:
+            raise LLMProviderError("GROQ_API_KEY is missing. Ensure it is set in environment variables.")
 
         headers = {
-            "Authorization": f"Bearer {self.primary_api_key}",
+            "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json"
         }
 
-        messages = []
-        if system_message:
-            messages.append({"role": "system", "content": system_message})
-        messages.append({"role": "user", "content": prompt})
+        # Groq requires the prompt or system prompt to contain the word 'json' when response_format is json_object
+        sys_message = system_prompt if system_prompt else "You are an AI assistant that outputs structured json."
+        if "json" not in sys_message.lower():
+            sys_message += " Always respond in valid json format."
+
+        messages = [
+            {"role": "system", "content": sys_message},
+            {"role": "user", "content": prompt}
+        ]
 
         payload = {
             "model": model,
             "messages": messages,
-            "temperature": 0.2,
-            "max_tokens": 512,
-            "response_format": {"type": "json_object"}
+            "response_format": {"type": "json_object"},
+            "temperature": 0.2
         }
 
         try:
-            response = requests.post(endpoint, json=payload, headers=headers, timeout=8)
-            if response.status_code != 200:
-                raise LLMProviderError(f"Primary provider returned HTTP {response.status_code}: {response.text}")
-
+            response = requests.post(
+                self.primary_api_url,
+                headers=headers,
+                json=payload,
+                timeout=30
+            )
+            response.raise_for_status()
             data = response.json()
             return data["choices"][0]["message"]["content"]
-        except requests.exceptions.RequestException as e:
-            log.warning(f"Primary LLM network error: {e}")
-            raise LLMProviderError(f"Network error: {e}")
-        except (KeyError, IndexError) as e:
-            log.warning(f"Unexpected response schema from primary LLM: {e}")
-            raise LLMProviderError(f"Malformed response format: {e}")
-
-    def _execute_fallback(self, prompt: str, system_message: str) -> str:
-        """Local Ollama endpoint fallback when cloud primary fails."""
-        log.info("Executing local Ollama failover route...")
-        try:
-            payload = {
-                "model": os.getenv("OLLAMA_MODEL", "mistral"),
-                "prompt": f"{system_message}\n\n{prompt}" if system_message else prompt,
-                "stream": False,
-                "format": "json"
-            }
-            res = requests.post(self.fallback_url, json=payload, timeout=12)
-            if res.status_code == 200:
-                return res.json().get("response", "")
         except Exception as e:
-            log.error(f"Fallback LLM execution failed: {e}")
-        return ""
+            err_msg = response.text if 'response' in locals() and hasattr(response, 'text') else str(e)
+            log.error(f"Groq API call error details [{model}]: {err_msg}")
+            raise LLMProviderError(f"Groq API call failed for model '{model}': {err_msg}")
 
-    def query_with_failover(self, prompt: str, system_message: str = "") -> str:
-        """Executes primary request with retries before falling back to local runner."""
+    def query_with_failover(self, prompt: str, system_prompt: str = "") -> str:
+        """Executes prompt against primary model, failing over to fallback model on error."""
         try:
-            result = self._execute_primary(prompt, system_message)
-            if result:
-                return result
-        except Exception as e:
-            log.warning(f"Primary LLM retries exhausted: {e}")
+            return self._call_provider(prompt, self.primary_model, system_prompt)
+        except Exception as primary_err:
+            log.warning(f"Primary model ({self.primary_model}) failed: {primary_err}. Failing over to ({self.fallback_model})...")
+            try:
+                return self._call_provider(prompt, self.fallback_model, system_prompt)
+            except Exception as fallback_err:
+                log.error(f"Fallback model ({self.fallback_model}) failed: {fallback_err}")
+                return "{}"
 
-        return self._execute_fallback(prompt, system_message)
-
-    def score_for_role(self, topic: str, role: str, title: str) -> Tuple[float, str]:
-        """Scores resource relevance against step roles with guaranteed structural fallback."""
-        prompt = (
-            f"Topic: {topic}\nRole: {role}\nContent Title: {title}\n"
-            'Return JSON strictly in this format: {"score": 0.85, "reason": "Explanation"}'
-        )
-        system_msg = "You are a technical curriculum auditor. Output valid JSON only."
-
-        raw_response = self.query_with_failover(prompt, system_msg)
+    def _chat_json(self, prompt: str, system_prompt: str = "") -> Union[Dict[str, Any], List[Any]]:
+        """Public JSON query interface used by planner and retrieval modules."""
+        raw_response = self.query_with_failover(prompt, system_prompt)
         
         try:
-            parsed = json.loads(raw_response)
-            score = float(parsed.get("score", 0.75))
-            reason = str(parsed.get("reason", f"Relevant content for {topic}"))
-            return max(0.0, min(1.0, score)), reason
-        except (json.JSONDecodeError, TypeError, ValueError):
-            log.warning(f"LLM JSON parsing failed for title '{title}'. Using fallback relevance score.")
-            return 0.75, f"Validated technical material covering {topic}."
+            return self._extract_json(raw_response)
+        except (json.JSONDecodeError, TypeError) as err:
+            log.warning(f"Failed to parse Groq JSON response: {err}. Returning empty dict.")
+            return {}
+
+    def score_for_role(self, resource_text: str, role: str, *args, **kwargs) -> tuple[float, str]:
+        """
+        Scores resource suitability for a given learning path role.
+        Accepts *args and **kwargs to maintain signature compatibility with orchestrator callers.
+        """
+        prompt = (
+            f"Rate the relevance (0.0 to 1.0) of this content for role '{role}':\n"
+            f"{resource_text[:500]}\n"
+            f"Respond in JSON format: {{\"score\": float, \"reason\": string}}"
+        )
+        res = self._chat_json(prompt)
+        
+        if isinstance(res, dict):
+            score = float(res.get("score", 0.7))
+            reason = str(res.get("reason", "Relevant resource match."))
+        else:
+            score, reason = 0.7, "Relevant resource match."
+            
+        return score, reason
