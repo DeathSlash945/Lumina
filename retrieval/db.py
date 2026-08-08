@@ -43,13 +43,17 @@ def init_db():
 def save_groq_key(api_key: str):
     if not api_key or not api_key.strip():
         return
+    api_key = api_key.strip()
     with sqlite3.connect(DB_PATH) as conn:
         cursor = conn.cursor()
         cursor.execute("""
             INSERT INTO app_config (key, value) VALUES ('groq_api_key', ?)
             ON CONFLICT(key) DO UPDATE SET value=excluded.value
-        """, (api_key.strip(),))
+        """, (api_key,))
         conn.commit()
+    # retrieval.llm reads GROQ_API_KEY straight from the environment, not the DB -
+    # without this, a key saved via the UI/DB is silently invisible to it.
+    os.environ["GROQ_API_KEY"] = api_key
 
 def load_groq_key() -> str | None:
     with sqlite3.connect(DB_PATH) as conn:
@@ -57,16 +61,17 @@ def load_groq_key() -> str | None:
         cursor.execute("SELECT value FROM app_config WHERE key = 'groq_api_key'")
         row = cursor.fetchone()
         if row:
+            os.environ["GROQ_API_KEY"] = row[0]
             return row[0]
     return os.getenv("GROQ_API_KEY", "").strip() or None
 
 def clear_groq_key():
-    """Removes any DB-stored key. Note: does not affect a GROQ_API_KEY env var,
-    which load_groq_key() will still fall back to if one is set."""
+    """Removes the DB-stored key and unsets it from the environment."""
     with sqlite3.connect(DB_PATH) as conn:
         cursor = conn.cursor()
         cursor.execute("DELETE FROM app_config WHERE key = 'groq_api_key'")
         conn.commit()
+    os.environ.pop("GROQ_API_KEY", None)
 
 def save_session(session_id: str, session_state: ChatSessionState):
     with sqlite3.connect(DB_PATH) as conn:
