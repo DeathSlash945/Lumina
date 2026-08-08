@@ -10,7 +10,7 @@ from api.schemas import CreatePathRequest, ProgressUpdateRequest
 from retrieval.schemas import MasterLearningPath, CompletionStatus
 from retrieval.orchestrator import RetrievalService
 from retrieval.chat_agent import LuminaChatAgent
-from retrieval.db import init_db, save_session, load_session
+from retrieval.db import init_db, save_session, load_session, save_groq_key, load_groq_key
 from retrieval.progress_tracker import ProgressTracker
 
 logging.basicConfig(level=logging.INFO)
@@ -54,6 +54,17 @@ def health_check():
 )
 def generate_curriculum(payload: CreatePathRequest):
     """uses the api key and payload given to create the path."""
+    if payload.groq_api_key and payload.groq_api_key.strip():
+        save_groq_key(payload.groq_api_key)
+        active_key = payload.groq_api_key.strip()
+    else:
+        active_key = load_groq_key()
+
+    if not active_key:
+        raise HTTPException(
+            status_code=401, 
+            detail="No Groq API Key found in database. Please enter a valid API key."
+        )
     try:
         path = service.generate_custom_path(
             topic=payload.topic,

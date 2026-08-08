@@ -10,7 +10,6 @@ DB_PATH = "lumina_sessions.db"
 def init_db():
     with sqlite3.connect(DB_PATH) as conn:
         cursor = conn.cursor()
-        # Table for storing active user sessions and conversation history
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS sessions (
                 session_id TEXT PRIMARY KEY,
@@ -18,7 +17,6 @@ def init_db():
                 state_json TEXT NOT NULL
             )
         """)
-        # Table for caching transcript searches to avoid hitting YouTube APIs repeatedly
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS transcript_cache (
                 video_id TEXT PRIMARY KEY,
@@ -26,7 +24,33 @@ def init_db():
                 cached_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS app_config (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            )
+        """)
         conn.commit()
+
+def save_groq_key(api_key: str):
+    if not api_key or not api_key.strip():
+        return
+    with sqlite3.connect(DB_PATH) as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO app_config (key, value) VALUES ('groq_api_key', ?)
+            ON CONFLICT(key) DO UPDATE SET value=excluded.value
+        """, (api_key.strip(),))
+        conn.commit()
+
+def load_groq_key() -> str | None:
+    with sqlite3.connect(DB_PATH) as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT value FROM app_config WHERE key = 'groq_api_key'")
+        row = cursor.fetchone()
+        if row:
+            return row[0]
+    return None
 
 def save_session(session_id: str, session_state: ChatSessionState):
     with sqlite3.connect(DB_PATH) as conn:

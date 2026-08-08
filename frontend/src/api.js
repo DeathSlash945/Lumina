@@ -1,53 +1,39 @@
 const API_BASE_URL = "/api/v1";
-const GROQ_KEY_STORAGE = "lumina_user_groq_key";
-
-export function getUserGroqKey() {
-    return localStorage.getItem(GROQ_KEY_STORAGE) || "";
-}
-
-export function setUserGroqKey(key) {
-    if (key && key.trim()) {
-        localStorage.setItem(GROQ_KEY_STORAGE, key.trim());
-    } else {
-        localStorage.removeItem(GROQ_KEY_STORAGE);
-    }
-}
 
 export function promptForGroqKey() {
-    let key = getUserGroqKey();
-    if (!key) {
-        key = prompt("Please enter your Groq API Key to proceed (You can get one free from https://console.groq.com/keys):");
-        if (key && key.trim()) {
-            setUserGroqKey(key.trim());
-            return key.trim();
-        }
-    }
-    return key;
+    const key = prompt("Please enter your Groq API Key (It will be saved securely in the database):");
+    return key ? key.trim() : null;
 }
 
 // gets response from the generate endpoint
-export async function generateCurriculum(topic, expertiseLevel = "intermediate", contentPreference = "balanced") {
-    // prompt user if key isn't stored in localstorage yet
-    const userKey = promptForGroqKey();
+export async function generateCurriculum(topic, expertiseLevel = "intermediate", contentPreference = "balanced", providedKey = null) {
+    let userKey = providedKey;
 
-    const response = await fetch(`${API_BASE_URL}/curriculum/generate`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-            topic: topic,
-            expertise_level: expertiseLevel,
-            content_preference: contentPreference,
-            groq_api_key: userKey || null,
-        }),
-    });
+    const makeRequest = async (keyToSend) => {
+        return await fetch(`${API_BASE_URL}/curriculum/generate`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                topic: topic,
+                expertise_level: expertiseLevel,
+                content_preference: contentPreference,
+                groq_api_key: keyToSend || null,
+            }),
+        });
+    };
+
+    let response = await makeRequest(userKey);
+
+    // If no key exists in DB (401), prompt user for key and retry once to save it to DB
+    if (response.status === 401) {
+        userKey = promptForGroqKey();
+        if (userKey) {
+            response = await makeRequest(userKey);
+        }
+    }
 
     if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
-        // clear invalid api key from storage on auth failure
-        if (response.status === 401 || response.status === 403) {
-            setUserGroqKey(null);
-        }
-        
         throw new Error(errorData.detail || "Failed to generate curriculum.");
     }
 
