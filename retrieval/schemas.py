@@ -1,13 +1,10 @@
-"""
-Pydantic models shared across the Lumina curriculum and retrieval pipeline.
-"""
+# Pydantic models shared across.
 from __future__ import annotations
 from enum import Enum
-from typing import Optional, Literal
+from typing import Optional, Literal, Union, Dict, Any, List
 from pydantic import BaseModel, Field
 
-# --- User Preference Types ---
-
+# --- User preference types ---
 class UserExpertise(str, Enum):
     BEGINNER = "beginner"
     INTERMEDIATE = "intermediate"
@@ -22,7 +19,7 @@ class ContentRole(str, Enum):
     """Pedagogical roles mapped to structural positions in a path."""
     FOUNDATIONAL = "foundational"   # Beginner introduction / concepts
     DEEP_DIVE = "deep_dive"         # Mathematical derivation or architectural breakdown
-    PRACTICE = "practice"           # Hands-on problem sets, code walkthroughs, or labs
+    PRACTICE = "practice"           # Hands on problem sets or walkthroughs
     REFERENCE = "reference"         # API documentation, cheat-sheets, edge cases
 
 class ResourceType(str, Enum):
@@ -38,7 +35,7 @@ class CompletionStatus(str, Enum):
     IN_PROGRESS = "in_progress"
     COMPLETED = "completed"
 
-# --- Unified Resource Containers ---
+# --- Unified resource containers ---
 class PathResource(BaseModel):
     """A unified resource wrapper capable of tracking videos, books, or web docs."""
     resource_type: ResourceType
@@ -81,7 +78,7 @@ class TranscriptChunk(BaseModel):
     def duration(self) -> float:
         return self.end - self.start
 
-# --- Final Path Entities ---
+# --- Final path entities ---
 class CurriculumNode(BaseModel):
     topic_title: str
     estimated_hours: float
@@ -98,6 +95,7 @@ class CurriculumNode(BaseModel):
         completed = sum(1 for r in self.resources if r.status == CompletionStatus.COMPLETED)
         return round((completed / len(self.resources)) * 100.0, 1)
 
+# main learning path scheme
 class MasterLearningPath(BaseModel):
     main_topic: str
     expertise_level: UserExpertise
@@ -117,3 +115,13 @@ class MasterLearningPath(BaseModel):
             for s in self.steps
         )
         return round((completed_resources / total_resources) * 100.0, 1)
+
+# --- Chat & Session State Schemas ---
+class ChatMessage(BaseModel):
+    role: str
+    content: Union[str, Dict[str, Any], List[Any]]
+
+class ChatSessionState(BaseModel):
+    topic: Optional[str] = ""
+    current_path: MasterLearningPath
+    conversation_history: List[Union[ChatMessage, Dict[str, Any], str]] = Field(default_factory=list)

@@ -1,15 +1,13 @@
 import logging
-from pydantic import BaseModel
-from retrieval.schemas import MasterLearningPath, CurriculumNode, PathResource, UserExpertise, ContentPreference, ContentRole
+from retrieval.schemas import (
+    MasterLearningPath, CurriculumNode, PathResource, UserExpertise,
+    ContentPreference, ContentRole, ChatSessionState
+)
 from retrieval.orchestrator import RetrievalService
 from retrieval.llm_client import LLMClient
 
 log = logging.getLogger("lumina.chat")
 
-class ChatSessionState(BaseModel):
-    """Tracks the stateful conversation history and the active learning path."""
-    current_path: MasterLearningPath
-    conversation_history: list[dict[str, str]] = []
 
 class LuminaChatAgent:
     def __init__(self):
@@ -27,6 +25,7 @@ class LuminaChatAgent:
         )
         
         return ChatSessionState(
+            topic=topic,
             current_path=initial_path,
             conversation_history=[
                 {"role": "system", "content": "You are Lumina's curriculum adjustment assistant."},
@@ -42,7 +41,7 @@ class LuminaChatAgent:
         session.conversation_history.append({"role": "user", "content": user_message})
         
         system_prompt = (
-            "You are an academic curriculum coordinator. The user wants to modify their current learning path.\n"
+            "You are a curriculum coordinator. The user wants to modify their current learning path.\n"
             "Analyze their request and determine the target modification details.\n\n"
             "Respond ONLY with a JSON object:\n"
             "{\n"
@@ -61,7 +60,7 @@ class LuminaChatAgent:
             intent = decision.get("intent", "question")
             step_idx = decision.get("target_step_index")
             format_target = decision.get("format_target", "video")
-            role_str = decision.get("role_target", "practice").upper()
+            role_str = str(decision.get("role_target", "practice")).upper()
             
             # Safely resolve target role enum
             try:
@@ -75,7 +74,7 @@ class LuminaChatAgent:
                     target_step = session.current_path.steps[idx]
                     extra_resources = []
                     
-                    # Target Format Execution Route
+                    # Target format execution route
                     if format_target == "text":
                         extra_resources = self.service.web_provider.search_text_resources(
                             target_step.topic_title, role_target
@@ -83,12 +82,20 @@ class LuminaChatAgent:
                         # Fallback to video if text provider yields nothing
                         if not extra_resources:
                             extra_resources = self.service._get_video_segments(
-                                target_step.topic_title, role_target
+                                main_topic=session.current_path.main_topic,
+                                sub_topic=target_step.topic_title,
+                                role=role_target,
+                                num_videos=1,
+                                seen_urls=set()
                             )
                             format_target = "video (fallback)"
                     else:
                         extra_resources = self.service._get_video_segments(
-                            target_step.topic_title, role_target
+                            main_topic=session.current_path.main_topic,
+                            sub_topic=target_step.topic_title,
+                            role=role_target,
+                            num_videos=1,
+                            seen_urls=set()
                         )
                         # Fallback to text if video yields nothing
                         if not extra_resources:
@@ -111,7 +118,7 @@ class LuminaChatAgent:
             log.error(f"Error executing mutation matrix: {e}")
             
         # Conversational fallback for conceptual questions
-        conversational_system = "You are an AI instructor. Answer the user's computer science question accurately, clearly, and concisely. Wrap response in a JSON object with key 'response'."
+        conversational_system = "You are an AI instructor. Answer the user's question accurately, clearly, and concisely. Wrap response in a JSON object with key 'response'."
         try:
             resp = self.llm._chat_json(conversational_system, user_message)
             msg = resp.get("response", "I've processed your update request.")

@@ -1,10 +1,16 @@
-import uuid
 import logging
-from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
+import urllib.parse
+from contextlib import asynccontextmanager
+from fastapi import FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 
-from retrieval.schemas import MasterLearningPath, UserExpertise, ContentPreference, CompletionStatus
+from retrieval.schemas import (
+    MasterLearningPath,
+    UserExpertise,
+    ContentPreference,
+    CompletionStatus,
+)
 from retrieval.chat_agent import LuminaChatAgent
 from retrieval.db import init_db, save_session, load_session
 from retrieval.progress_tracker import ProgressTracker
@@ -13,17 +19,21 @@ logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("lumina.api")
 
 
+# init db on app startup using lifespan
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    init_db()
+    yield
+
+
 app = FastAPI(
     title="Project Lumina Engine",
-    description="Automated, personalized learning path generator and stateful curriculum assistant.",
-    version="1.0.0"
+    description="automated, personalized learning path generator and stateful curriculum assistant.",
+    version="1.0.0",
+    lifespan=lifespan,
 )
 
-@app.lifespan("startup")
-def startup_event():
-    init_db()
-
-# Enable CORS for local UI development
+# enable cors for local ui interaction
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -31,135 +41,133 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-CHAT_AGENT = LuminaChatAgent()
 
-# --- Request / Response Schemas ---
-class GeneratePathRequest(BaseModel):
+chat_agent = LuminaChatAgent()
+
+
+# --- request schemas ---
+
+class GenerateCurriculumRequest(BaseModel):
     topic: str
-    expertise_level: UserExpertise = UserExpertise.BEGINNER
-    preference: ContentPreference = ContentPreference.BALANCED
+    expertise_level: UserExpertise = UserExpertise.INTERMEDIATE
+    content_preference: ContentPreference = ContentPreference.BALANCED
+    groq_api_key: str | None = None
 
-class InitSessionResponse(BaseModel):
-    session_id: str
-    path: MasterLearningPath
-    initial_message: str
-
-class ChatMessageRequest(BaseModel):
-    session_id: str
-    message: str
-
-class ChatMessageResponse(BaseModel):
-    session_id: str
-    response: str
-    updated_path: MasterLearningPath
 
 class UpdateProgressRequest(BaseModel):
-    session_id: str
-    step_index: int  # 0-indexed
-    resource_index: int | None = None  # None if marking whole step
+    step_index: int
     status: CompletionStatus
 
-class ProgressResponse(BaseModel):
-    session_id: str
-    step_index: int
-    step_progress: float
-    total_progress: float
-    updated_path: MasterLearningPath
-    #___________________________________________________________________________
 
-@app.post("/api/v1/progress/update", response_model=ProgressResponse)
-def update_progress(req: UpdateProgressRequest):
-    session = load_session(req.session_id)
-    if not session:
-        raise HTTPException(status_code=404, detail="Session not found.")
-        
-    if req.resource_index is not None:
-        session.current_path = ProgressTracker.update_resource_status(
-            session.current_path, req.step_index, req.resource_index, req.status
-        )
-    else:
-        session.current_path = ProgressTracker.update_step_status(
-            session.current_path, req.step_index, req.status
-        )
-        
-    save_session(req.session_id, session)
-    
-    target_node = session.current_path.steps[req.step_index]
-    
-    return ProgressResponse(
-        session_id=req.session_id,
-        step_index=req.step_index,
-        step_progress=target_node.progress_percentage,
-        total_progress=session.current_path.total_progress,
-        updated_path=session.current_path
-    )
+class MutatePathRequest(BaseModel):
+    topic: str
+    message: str
 
 
-# --- API Endpoints ---
+# --- session lookup helper ---
+
+def _get_or_create_session(topic_raw: str):
+    decoded = urllib.parse.unquote(topic_raw).strip()
+    keys_to_try = [decoded, decoded.lower(), topic_raw, topic_raw.lower()]
+
+    for k in keys_to_try:
+        session = load_session(k)
+        if session:
+            return k, session
+
+    # auto recreate session if missing from db
+    new_session = chat_agent.initialize_session(topic=decoded)
+    save_session(decoded.lower(), new_session)
+    return decoded.lower(), new_session
+
+
+# --- endpoints ---
 
 @app.get("/health")
 def health_check():
-    return {"status": "online", "engine": "Project Lumina RAG + Agent Controller"}
+    return {"status": "online", "engine": "Project Lumina RAG Engine"}
 
 
-@app.post("/api/v1/path/generate", response_model=InitSessionResponse)
-def generate_path(req: GeneratePathRequest):
-    """
-    Initializes a new learning session, runs the curriculum planner,
-    populates resources via the retrieval orchestrator, and returns a session ID.
-    """
+@app.post("/api/v1/curriculum/generate", response_model=MasterLearningPath)
+def generate_curriculum(req: GenerateCurriculumRequest):
+    """generates a dynamic learning path based on topic, expertise level, and preferences."""
     try:
-        session_id = str(uuid.uuid4())
-        session_state = CHAT_AGENT.initialize_session(
+        session_state = chat_agent.initialize_session(
             topic=req.topic,
             level=req.expertise_level,
-            pref=req.preference
+            pref=req.content_preference,
         )
-        save_session(session_id,session_state)
-        
-        return InitSessionResponse(
-            session_id=session_id,
-            path=session_state.current_path,
-            initial_message=session_state.conversation_history[-1]["content"]
-        )
+        raw_key = req.topic.strip()
+        lower_key = raw_key.lower()
+
+        # save under both raw and lowercase keys to guarantee matching
+        save_session(lower_key, session_state)
+        save_session(raw_key, session_state)
+
+        return session_state.current_path
     except Exception as e:
-        log.error(f"Failed to generate learning path: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Path generation failed: {str(e)}")
+        log.error(f"failed to generate curriculum for topic '{req.topic}': {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Curriculum generation failed: {str(e)}",
+        )
 
 
-@app.post("/api/v1/chat/mutate", response_model=ChatMessageResponse)
-def mutate_path_chat(req: ChatMessageRequest):
-    """
-    Accepts natural language commands to dynamically mutate, expand, or update
-    the current active MasterLearningPath state.
-    """
-    session_state = load_session(req.session_id)
-    if not session_state:
-        raise HTTPException(status_code=404, detail="Session not found.")
-    
+@app.post("/api/v1/curriculum/mutate")
+def mutate_curriculum(req: MutatePathRequest):
+    """accepts natural language prompts to dynamically alter the current path."""
+    key, session = _get_or_create_session(req.topic)
     try:
-        response_text, updated_session = CHAT_AGENT.process_message(
-            session=session_state,
-            user_message=req.message
+        response_text, updated_session = chat_agent.process_message(
+            session=session,
+            user_message=req.message,
         )
-        
-        # Persist updated session state
-        save_session(req.session_id, updated_session)
-        
-        return ChatMessageResponse(
-            session_id=req.session_id,
-            response=response_text,
-            updated_path=updated_session.current_path
-        )
+        save_session(key, updated_session)
+
+        return {
+            "response": response_text,
+            "path": updated_session.current_path,
+        }
     except Exception as e:
-        log.error(f"Error processing chat mutation: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Chat processing failed: {str(e)}")
+        log.error(f"failed to mutate curriculum for '{req.topic}': {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Path mutation failed: {str(e)}",
+        )
 
 
-@app.get("/api/v1/path/{session_id}", response_model=MasterLearningPath)
-def get_path_state(session_id: str):
-    """Retrieves the current state of a learning path for a given session."""
-    session_state = load_session(session_id)
-    if not session_state:
-        raise HTTPException(status_code=404, detail="Session not found.")
-    return session_state.current_path
+@app.patch("/api/v1/curriculum/{topic}/progress")
+def update_step_progress(topic: str, req: UpdateProgressRequest):
+    """updates the completion status of a specific step in an active curriculum."""
+    key, session = _get_or_create_session(topic)
+
+    if not session.current_path or not session.current_path.steps:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"No steps available in learning path for topic '{topic}'.",
+        )
+
+    if req.step_index < 0 or req.step_index >= len(session.current_path.steps):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Step index {req.step_index} out of bounds for topic '{topic}'.",
+        )
+
+    session.current_path = ProgressTracker.update_step_status(
+        session.current_path, req.step_index, req.status
+    )
+    save_session(key, session)
+
+    return {
+        "status": "success",
+        "topic": topic,
+        "step_index": req.step_index,
+        "new_status": req.status,
+    }
+
+
+@app.get("/api/v1/curriculum/{topic}", response_model=MasterLearningPath)
+def get_curriculum(topic: str):
+    """retrieves an existing generated curriculum path by topic."""
+    _, session = _get_or_create_session(topic)
+    return session.current_path

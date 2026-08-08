@@ -1,0 +1,10 @@
+services:
+  lumina-app:
+    build: .
+    container_name: lumina_engine
+    ports:
+      - "8000:8000"
+    environment:
+      - LOG_LEVEL=INFO
+      # =- GROQ_API_KEY=fallback optional debug key
+    restart: unless-stopped

@@ -5,7 +5,7 @@ BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = BASE_DIR / "data"
 DATA_DIR.mkdir(exist_ok=True)
 
-# --- Ollama ---
+# --- Ollama (for local models) ---
 OLLAMA_HOST = os.getenv("LUMINA_OLLAMA_HOST", "http://localhost:11434")
 CHAT_MODEL = os.getenv("LUMINA_CHAT_MODEL", "qwen3:8b")
 EMBED_MODEL = os.getenv("LUMINA_EMBED_MODEL", "nomic-embed-text")

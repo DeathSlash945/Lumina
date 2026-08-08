@@ -6,7 +6,6 @@ from retrieval.schemas import ContentRole, PathResource, ResourceType
 
 log = logging.getLogger("lumina.web_provider")
 
-
 class WebSearchProvider:
     def __init__(self):
         self.headers = {
@@ -28,10 +27,13 @@ class WebSearchProvider:
         log.warning(f"All text resource sources exhausted with no results for '{query}'")
         return []
 
+    #ddg search, with basic bs4
     def _search_ddg_lite(self, query: str, role: ContentRole) -> list[PathResource]:
-        """lite.duckduckgo.com returns a plain HTML table and is much less aggressively
+        """lite.duckduckgo.com returns a plain html table and is much less aggressively
         rate-limited/blocked than the full html.duckduckgo.com endpoint."""
-        encoded_query = urllib.parse.quote(f"{query} documentation guide tutorial")
+        # Focus query on official docs, specs, and technical articles
+        doc_query = f"{query} (official documentation OR manual OR guide OR specification)"
+        encoded_query = urllib.parse.quote(doc_query)
         url = f"https://lite.duckduckgo.com/lite/?q={encoded_query}"
 
         resp = requests.post(url, headers=self.headers, timeout=8)
@@ -39,6 +41,7 @@ class WebSearchProvider:
             log.warning(f"DDG lite returned {resp.status_code} for '{query}': {resp.text[:200]}")
             return []
 
+        #basic stuff just parsing
         soup = BeautifulSoup(resp.text, "html.parser")
         resources = []
         for link in soup.find_all("a", class_="result-link"):
@@ -48,11 +51,11 @@ class WebSearchProvider:
             title = link.get_text().strip() or f"{query} Reference"
             domain = urllib.parse.urlparse(href).netloc
             resources.append(PathResource(
-                resource_type=ResourceType.ARTICLE,
+                resource_type=ResourceType.DOCUMENTATION,
                 title=title[:80],
                 url=href,
                 role=role,
-                justification="Technical writeup and documentation reference.",
+                justification="Official documentation and technical writeup.",
                 reading_time_minutes=10,
                 source_domain=domain
             ))
@@ -63,9 +66,11 @@ class WebSearchProvider:
             log.warning(f"DDG lite returned 200 but no 'result-link' anchors for '{query}' — markup may have changed.")
         return resources
 
+    #full ddg search, with more parsing
     def _search_ddg_html(self, query: str, role: ContentRole) -> list[PathResource]:
         """Original full html.duckduckgo.com scraper, kept as a secondary attempt."""
-        encoded_query = urllib.parse.quote(f"{query} documentation guide tutorial")
+        doc_query = f"{query} documentation OR guide"
+        encoded_query = urllib.parse.quote(doc_query)
         url = f"https://html.duckduckgo.com/html/?q={encoded_query}"
 
         resp = requests.get(url, headers=self.headers, timeout=8)
@@ -95,7 +100,7 @@ class WebSearchProvider:
 
             domain = urllib.parse.urlparse(final_url).netloc
             resources.append(PathResource(
-                resource_type=ResourceType.ARTICLE,
+                resource_type=ResourceType.DOCUMENTATION,
                 title=snippet_tag.get_text().strip()[:80] or f"{query} Reference",
                 url=final_url,
                 role=role,
@@ -105,8 +110,9 @@ class WebSearchProvider:
             ))
         return resources
 
+    #the GOAT wiki as fallback, works almost all the time
     def _search_wikipedia(self, query: str, role: ContentRole) -> list[PathResource]:
-        """Last-resort real source: Wikipedia's public search API, no key/scraping needed."""
+        """Last resort real source is wikipedia's public search API, no key/scraping needed."""
         url = "https://en.wikipedia.org/w/api.php"
         params = {
             "action": "query",

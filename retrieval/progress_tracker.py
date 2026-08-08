@@ -26,6 +26,7 @@ class ProgressTracker:
                     node.status = CompletionStatus.NOT_STARTED
         return path
 
+#to be applied too
     @staticmethod
     def update_step_status(
         path: MasterLearningPath, 

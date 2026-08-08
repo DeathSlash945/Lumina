@@ -1,8 +1,7 @@
 """
-Primary retrieval provider. yt-dlp is preferred over youtube-transcript-api
-as the default because it's more actively maintained against YouTube's
-bot-detection changes and gives us search + metadata + captions from one
-tool, with no quota (unlike the official Data API).
+Primary retrieval provider. yt-dlp is actively maintained against YouTube's
+bot-detection changes and gives search + metadata + captions from one
+tool, with no quota.
 """
 import time
 import requests
@@ -21,7 +20,7 @@ params = {
 def _fetch_caption_json(url: str) -> dict:
     """GET the caption track with retry+backoff on 429s. YouTube rate-limits
     this endpoint aggressively when hit repeatedly in a short window, which
-    is exactly what indexing several candidate videos back-to-back does."""
+    is exactly what indexing several candidate videos again and again does."""
     last_error = None
     for attempt in range(CAPTION_FETCH_RETRIES):
         resp = requests.get(url, timeout=15)

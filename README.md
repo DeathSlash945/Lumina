@@ -1,2 +1,63 @@
 # Lumina
-Personal trainer AI helping you progress and level up your skills by constant guidance and tracking your behaviour
+
+Project Lumina is a stateful learning path generator and curriculum engine. It builds structured learning paths using LLMs, YouTube video segments, book references, and web documentation. Users can modify an active curriculum on the fly using natural language prompts.
+I made this project to explore the intersecting areas of RAG, making the orchestrator to combine everything into one capable agent.
+
+This project consists of 3-4 stages of work- planning, retrieval, llm orchestration, and then final path construction. The backend is a bit basic, the frontend being even more naive although pretty polished.
+
+Using it is very simple just build using docker (steps given below) or you can extract everything and run 'uvicorn api.main:app --reload --port 8000' command.
+
+The chat saving is just locally for now. As well as the retrieval process being a lil buggy at times which will be fixed if I decide to polish more.
+The web and book providers are also a bit underwhelming but I'll try polishing that too, idk why DDG just doesn't give anything randomly and hits rate limit so easy.
+
+## Features
+
+* Dynamic path generation: Builds skill-aware curricula tailored to beginner, intermediate, or expert levels.
+* Multi-source retrieval: Aggregates and scores relevant video segments via YouTube, book search providers, and web documentation.
+* Natural language path mutation: Alter active paths through conversational prompts, such as adding specific subtopics or adjusting difficulty.
+* Progress tracking: Step completion states are persisted using SQLite.
+* Groq API acceleration: Fast inference integration supporting dynamic API key management.
+* Static web interface: Served directly through FastAPI, just the basic stuff.
+
+## Tech Stack
+
+| Component | Technology |
+| :--- | :--- |
+| Backend | FastAPI (Python 3.11+) |
+| LLM Orchestration | Custom Agent Workflow with Groq API |
+| Retrieval Providers | yt-dlp (Youtube), MultiSource book API, Web search |
+| Storage and state | SQLite and Pydantic v2 |
+| Frontend | Vanilla JS (ES Modules) and tailwind CSS |
+| Deployment | Docker and Docker Compose |
+
+## Quickstart with Docker
+
+### Prerequisites
+
+* Docker Desktop installed.
+* A Groq API Key (can be set as an environment variable [make a .env file in project folder and type your groq key as GROQ_API_KEY=gsk...] or entered in the UI).
+
+### Running with docker compose (should have docker installed)
+
+1. Clone the repository:
+   ```bash
+   git clone https://github.com/DeathSlash945/Lumina.git
+   cd Lumina
+   ```
+
+2. Run the command:
+   ```bash
+   docker compose up --build -d
+   ```
+3. Access the web interface at 'http://localhost:8000'.
+
+To stop the container just type 'docker compose down' (you should already know this ig).
+
+### Do it yourself:
+Run the command:
+```bash
+uvicorn api.main:app --reload --port 8000
+```
+inside the project folder to launch the uvicorn server for FastAPI yourself
+(should have both uvicorn and other requirements needed for that)
+You should also look into requirements.txt for any library you don't have.

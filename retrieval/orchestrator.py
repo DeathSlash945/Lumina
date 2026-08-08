@@ -1,5 +1,5 @@
 import logging
-from typing import Dict, List, Set
+from typing import Dict, List, Set, Optional
 from retrieval.schemas import (
     MasterLearningPath, CurriculumNode, PathResource, ResourceType,
     UserExpertise, ContentPreference, ContentRole, CompletionStatus
@@ -31,7 +31,7 @@ class RetrievalService:
     _BEGINNER_MARKERS = ("beginner", "noob", "for beginners", "101", "basics",
                           "introduction", "getting started", "easy", "crash course")
     _ADVANCED_MARKERS = ("advanced", "expert", "master", "pro tips",
-                          "internals", "architecture", "optimization")
+                          "internals", "optimization")
 
     def _level_query_modifier(self, level: UserExpertise) -> str:
         return {
@@ -49,47 +49,40 @@ class RetrievalService:
             return True
         return False
 
-    def _get_video_segments(self, main_topic: str, sub_topic: str, role: ContentRole,
-                             num_videos: int, seen_urls: set, level: UserExpertise = None,
+    def _get_video_segments(self, main_topic: str, sub_topic: str = "", role: ContentRole = ContentRole.FOUNDATIONAL,
+                             num_videos: int = 2, seen_urls: Optional[set] = None, level: str = "intermediate",
                              llm: "LLMClient" = None) -> List[PathResource]:
-        """Surfaces highly precise video material, strictly bound to the main topic domain and skill level."""
-        # Domain-neutral phrasing — avoid tech-flavored terms like "architecture" / "internal
-        # mechanics" / "coding", which cause false-positive keyword matches on unrelated topics
-        # (e.g. "internal mechanics" pulling in fluid-dynamics videos for a swimming query).
-        llm = llm or self.llm
-        role_keywords = {
-            ContentRole.FOUNDATIONAL: "overview introduction explanation",
-            ContentRole.DEEP_DIVE: "in-depth advanced concepts explained",
-            ContentRole.PRACTICE: "hands on practice exercise walkthrough",
-            ContentRole.REFERENCE: "summary tips review"
-        }.get(role, "tutorial guide")
+        """Surfaces strictly relevant video material matching both main_topic and sub_topic."""
+        if num_videos <= 0:
+            return []
 
-        level_modifier = self._level_query_modifier(level) if level else ""
+        if seen_urls is None:
+            seen_urls = set()
 
-        # Include main_topic in query to avoid off-topic matches (e.g. fishing gear, trailers)
-        search_query = f"{main_topic} {sub_topic} {role_keywords} {level_modifier}".strip()
+        # Sanitize sub_topic if ContentRole enum or raw enum text was passed
+        if isinstance(sub_topic, ContentRole) or "ContentRole" in str(sub_topic) or not str(sub_topic).strip():
+            clean_subtopic = main_topic
+        else:
+            clean_subtopic = str(sub_topic).strip()
+
+        search_query = f"{main_topic} {clean_subtopic}".strip()
         resources = []
 
-        # Below this relevance score, a title is treated as an off-topic/junk match and skipped.
-        MIN_RELEVANCE = 0.45
-
         try:
-            # Over-fetch more since level-mismatched and low-relevance titles now get filtered out
-            results = self.search_provider.search(search_query, max_results=num_videos * 5)
+            results = self.search_provider.search(search_query, max_results=(num_videos * 4) + 1)
             for video in results:
                 if len(resources) >= num_videos:
                     break
                 if video.url in seen_urls:
                     continue
-                if level and self._level_mismatch(level, video.title):
+
+                active_llm = llm if llm is not None else self.llm
+                title_score, reason = active_llm.score_for_role(clean_subtopic, role, video.title)
+                if title_score < 0.6:
+                    log.info(f"Skipped off-topic video '{video.title}' for subtopic '{clean_subtopic}'")
                     continue
 
-                title_score, reason = llm.score_for_role(sub_topic, role, video.title)
-                if title_score < MIN_RELEVANCE:
-                    log.info(f"Dropping low-relevance video ({title_score:.2f}) for '{sub_topic}': {video.title}")
-                    continue
-                score = title_score
-                dynamic_rating = round(3.8 + (score * 1.2), 1)
+                dynamic_rating = round(3.8 + (title_score * 1.2), 1)
 
                 seen_urls.add(video.url)
                 resources.append(PathResource(
@@ -97,28 +90,27 @@ class RetrievalService:
                     title=video.title,
                     url=f"{video.url}&t=0s",
                     role=role,
-                    justification=reason if reason else f"Key visual explanation for {sub_topic}.",
+                    justification=reason if reason else f"Targeted explanation for {clean_subtopic}.",
                     rating=dynamic_rating,
                     source_platform="YouTube",
                     start_time=0.0,
                     end_time=600.0
                 ))
         except Exception as e:
-            log.warning(f"Video search fallback triggered for '{search_query}': {e}")
+            log.warning(f"Video search error for '{search_query}': {e}")
 
-        # Safety Fallback
         if not resources:
-            fallback_query = f"{main_topic} {sub_topic} {level_modifier}".strip().replace(' ', '+')
-            fallback_url = f"https://www.youtube.com/results?search_query={fallback_query}+tutorial"
+            fallback_query = search_query.replace(' ', '+')
+            fallback_url = f"https://www.youtube.com/results?search_query={fallback_query}"
             if fallback_url not in seen_urls:
                 seen_urls.add(fallback_url)
                 resources.append(PathResource(
                     resource_type=ResourceType.VIDEO_SEGMENT,
-                    title=f"Video Search: {sub_topic}",
+                    title=f"Search Videos: {clean_subtopic}",
                     url=fallback_url,
                     role=role,
-                    justification=f"Video resources for {sub_topic}.",
-                    rating=4.2,
+                    justification=f"Explore community tutorials for {clean_subtopic}.",
+                    rating=4.0,
                     source_platform="YouTube Search"
                 ))
 
@@ -126,6 +118,9 @@ class RetrievalService:
 
     def _get_text_or_book_resource(self, main_topic: str, sub_topic: str, role: ContentRole, num_texts: int, seen_urls: set) -> List[PathResource]:
         """Retrieves verified books or text/documentation resources."""
+        if num_texts <= 0:
+            return []
+
         resources = []
         cleaned_query = f"{main_topic} {sub_topic}".replace("Platform", "").replace("Overview", "").replace("Introduction to", "").strip()
 
@@ -151,7 +146,7 @@ class RetrievalService:
         except Exception as e:
             log.warning(f"Book provider search error for '{cleaned_query}': {e}")
 
-        # Web Documentation/Articles
+        # Web documentation/articles
         if len(resources) < num_texts:
             try:
                 texts = self.web_provider.search_text_resources(cleaned_query, role)
@@ -166,10 +161,10 @@ class RetrievalService:
             except Exception as e:
                 log.warning(f"Web provider search error for '{cleaned_query}': {e}")
 
-        # Safety Net: Google Search Fallback (Explicitly tagged for frontend topic styling)
+        # Safety net: normal google search fallback (Explicitly tagged for frontend topic styling)
         if not resources:
             formatted_topic = f"{main_topic} {sub_topic}".replace(' ', '+')
-            target_url = f"https://www.google.com/search?q={formatted_topic}+guide+documentation"
+            target_url = f"https://www.google.com/search?q={formatted_topic}+official+documentation+guide"
 
             if target_url not in seen_urls:
                 seen_urls.add(target_url)
@@ -234,26 +229,33 @@ class RetrievalService:
                 custom_minutes = None
                 rationale = ""
 
-            # Apply the user's stated media focus to the LLM-suggested split.
-            # ContentPreference is expected to carry values like VIDEO / TEXT / BALANCED.
+            # Explicit check for Text/Books media focus choices
             pref_name = getattr(preference, "name", str(preference)).upper()
-            if "VIDEO" in pref_name and "TEXT" not in pref_name:
-                num_videos = max(num_videos, 2)
-                num_texts = max(num_texts - 1, 0)
-            elif "TEXT" in pref_name or "READ" in pref_name:
+            if any(k in pref_name for k in ("TEXT", "BOOK", "READ", "DOC")):
                 num_texts = max(num_texts, 2)
-                num_videos = max(num_videos - 1, 1)
-            # BALANCED (or unrecognized): leave the LLM's per-step numbers as-is.
+                num_videos = 0  # Completely restrict videos if text/books approach selected
+            elif "VIDEO" in pref_name and "TEXT" not in pref_name:
+                num_videos = max(num_videos, 2)
+                num_texts = 0
 
             collected_resources = []
 
             # Gather dynamic number of videos & text resources
-            videos = self._get_video_segments(topic, sub_title, step_role, num_videos,
-                                                seen_urls, level=level, llm=llm)
-            texts = self._get_text_or_book_resource(topic, sub_title, step_role, num_texts, seen_urls)
+            if num_videos > 0:
+                videos = self._get_video_segments(
+                    main_topic=topic,
+                    sub_topic=sub_title,
+                    role=step_role,
+                    num_videos=num_videos,
+                    seen_urls=seen_urls,
+                    level=level,
+                    llm=llm
+                )
+                collected_resources.extend(videos)
 
-            collected_resources.extend(videos)
-            collected_resources.extend(texts)
+            if num_texts > 0:
+                texts = self._get_text_or_book_resource(topic, sub_title, step_role, num_texts, seen_urls)
+                collected_resources.extend(texts)
 
             # Calculate dynamic step duration
             if custom_minutes:

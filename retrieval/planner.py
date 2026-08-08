@@ -6,7 +6,6 @@ from retrieval.schemas import UserExpertise, ContentPreference, ContentRole
 
 log = logging.getLogger("lumina.planner")
 
-
 class CurriculumPlanner:
 
   def __init__(self, llm_client: LLMClient):
@@ -16,7 +15,6 @@ class CurriculumPlanner:
       self, topic: str, level: UserExpertise
   ) -> List[Dict[str, Any]]:
     """Determines whether a topic is an entire course structure or a specific leaf.
-
     Generates robust contextual labels to enforce accurate search queries.
     """
     system_prompt = (
@@ -55,7 +53,6 @@ class CurriculumPlanner:
         "  ]\n"
         "}"
     )
-
     user_prompt = f"Topic to analyze: '{topic}'"
 
     # Consistent dictionary fallback matching the required schema
@@ -106,7 +103,6 @@ class CurriculumPlanner:
             ContentRole.REFERENCE: 0.20,
         },
     }[level]
-
     return base_weights
 
   def generate_related_topics(self, topic: str, sub_topics: list) -> list[str]:
@@ -118,8 +114,8 @@ class CurriculumPlanner:
 
     system_prompt = (
         "You suggest follow-up learning topics. Given a main topic and the"
-        " subtopics already covered in its learning path, suggest 5 DISTINCT"
-        " related topics the learner could explore next — things that build on,"
+        " subtopics already covered in its learning path, suggest 5-9 DISTINCT"
+        " related topics the learner could explore next, things that build on,"
         " branch from, or commonly pair with the main topic. Avoid repeating"
         ' the subtopics already listed.\n\nRespond strictly with JSON: {"related_topics":'
         ' ["...", "..."]}'
@@ -129,7 +125,9 @@ class CurriculumPlanner:
     try:
       response = self.llm._chat_json(user_prompt, system_prompt)
       related = response.get("related_topics", [])
-      return [str(r) for r in related][:6]
+      return [str(r) for r in related][:10]
     except Exception as e:
       log.warning(f"Failed to generate related topics for '{topic}': {e}")
       return []
+
+    

@@ -1,4 +1,4 @@
-import { generateCurriculum, updateStepProgress, getUserGroqKey, setUserGroqKey } from './api.js';
+import { generateCurriculum, updateStepProgress, mutateCurriculum, getUserGroqKey, setUserGroqKey } from './api.js';
 
 const STORAGE_KEY = 'lumina_saved_paths';
 
@@ -6,6 +6,7 @@ let currentPath = null;
 let expandedSteps = new Set();
 let sidebarOpen = true;
 
+// dom element refs
 const form = document.getElementById('generator-form');
 const submitBtn = document.getElementById('submit-btn');
 const outputContainer = document.getElementById('output-container');
@@ -25,7 +26,12 @@ const groqKeyStatus = document.getElementById('groq-key-status');
 const relatedWrap = document.getElementById('related-topics-wrap');
 const relatedList = document.getElementById('related-topics-list');
 
-// Local storage handlers
+const mutationWrap = document.getElementById('mutation-wrap');
+const mutationForm = document.getElementById('mutation-form');
+const mutationInput = document.getElementById('mutation-input');
+const mutationBtn = document.getElementById('mutation-btn');
+
+// local storage handlers
 function loadSavedPaths() {
     try {
         const raw = localStorage.getItem(STORAGE_KEY);
@@ -50,6 +56,7 @@ function persistCurrentPath() {
     renderSidebar();
 }
 
+// removes the path from saved paths
 function deleteSavedPath(topic) {
     const paths = loadSavedPaths();
     delete paths[topic];
@@ -62,7 +69,7 @@ function deleteSavedPath(topic) {
     renderSidebar();
 }
 
-// Data Normalization
+// data normalization helpers
 function normalizeStep(step, index) {
     const title = step.title || step.step_title || step.name || `Step ${index + 1}`;
     const resources = (step.resources || []).map(res => ({
@@ -79,7 +86,7 @@ function normalizePath(path) {
     };
 }
 
-// Sidebar rendering
+// sidebar list rendering
 function renderSidebar() {
     const paths = loadSavedPaths();
     const entries = Object.values(paths).sort((a, b) => (b._savedAt || 0) - (a._savedAt || 0));
@@ -95,14 +102,14 @@ function renderSidebar() {
         const isActive = currentPath && currentPath.main_topic === p.main_topic;
         return `
             <div data-topic="${escapeAttr(p.main_topic)}"
-                 class="sidebar-item flat-btn group flex items-center justify-between gap-2 rounded-lg px-3 py-2.5 cursor-pointer border"
+                 class="sidebar-item flat-btn group flex items-center justify-between gap-2 px-3 py-2.5 cursor-pointer border"
                  style="background: ${isActive ? 'var(--bg-panel-2)' : 'transparent'}; border-color: ${isActive ? 'var(--purple-mid)' : 'transparent'};">
                 <div class="min-w-0">
                     <p class="text-sm font-medium truncate" style="color: var(--text-primary);">${escapeHtml(p.main_topic)}</p>
                     <p class="text-[11px]" style="color: var(--text-muted);">${done}/${total} steps complete</p>
                 </div>
                 <button data-delete-topic="${escapeAttr(p.main_topic)}"
-                        class="delete-path-btn flex-shrink-0 opacity-0 group-hover:opacity-100 text-xs px-1.5 py-1 rounded hover:bg-red-950/40 hover:text-red-400"
+                        class="delete-path-btn flex-shrink-0 opacity-0 group-hover:opacity-100 text-xs px-1.5 py-1 hover:bg-red-950/40 hover:text-red-400"
                         style="color: var(--text-muted);" title="Delete Path">✕</button>
             </div>
         `;
@@ -140,7 +147,7 @@ function renderRelatedTopics() {
     relatedWrap.classList.remove('hidden');
     relatedList.innerHTML = topics.map(t => `
         <button data-related-topic="${escapeAttr(t)}"
-                class="related-chip flat-btn text-xs px-3 py-1.5 rounded-full border hover:border-purple-500/40"
+                class="related-chip flat-btn text-xs px-3 py-1.5 border hover:border-purple-500/40"
                 style="background: var(--bg-input); border-color: var(--border); color: var(--text-secondary);">
             ${escapeHtml(t)}
         </button>
@@ -154,25 +161,25 @@ function renderRelatedTopics() {
     });
 }
 
+// toggle sidebar visibility
 sidebarToggle.addEventListener('click', () => {
     sidebarOpen = !sidebarOpen;
     sidebar.classList.toggle('collapsed', !sidebarOpen);
 });
 
-// Form Submissions
+// form submission handler
 form.addEventListener('submit', async (e) => {
     e.preventDefault();
     const topic = document.getElementById('topic-input').value.trim();
     const expertise = document.getElementById('expertise-select').value;
     const preference = document.getElementById('preference-select').value;
-
     if (!topic) return;
 
     renderSkeleton();
     try {
         const raw = await generateCurriculum(topic, expertise, preference);
         currentPath = normalizePath(raw);
-        expandedSteps = new Set([0]); // Open step 0 by default
+        expandedSteps = new Set([0]); // open first step by default
         persistCurrentPath();
         renderCurriculum();
     } catch (err) {
@@ -219,18 +226,45 @@ function updateProgressBar() {
 }
 
 function renderCurriculum() {
-    if (!currentPath) return;
+    if (!currentPath) {
+        mutationWrap.classList.add('hidden');
+        return;
+    }
+    mutationWrap.classList.remove('hidden');
     updateProgressBar();
     outputContainer.innerHTML = currentPath.steps.map((step, idx) => renderStepCard(step, idx)).join('');
     attachEventListeners();
     renderRelatedTopics();
 }
 
+// handle user prompt mutation submission
+mutationForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const promptText = mutationInput.value.trim();
+    if (!promptText || !currentPath) return;
+
+    mutationBtn.disabled = true;
+    mutationBtn.querySelector('span').innerText = 'Updating…';
+
+    try {
+        const data = await mutateCurriculum(currentPath.main_topic, promptText);
+        currentPath = normalizePath(data.path);
+        persistCurrentPath();
+        renderCurriculum();
+        mutationInput.value = '';
+    } catch (err) {
+        alert(err.message);
+    } finally {
+        mutationBtn.disabled = false;
+        mutationBtn.querySelector('span').innerText = 'Modify Path';
+    }
+});
+
 function renderResourceRow(res, stepIdx, resIdx) {
     const rawUrl = res.url || '';
     const platform = (res.source_platform || '').toLowerCase();
     
-    // Catch any Google search fallback URL or platform
+    // catch google search fallbacks
     const isGoogleSearch = !rawUrl || 
                            rawUrl === '#' || 
                            rawUrl === 'None' || 
@@ -242,7 +276,7 @@ function renderResourceRow(res, stepIdx, resIdx) {
     const badgeLabel = isGoogleSearch ? 'TOPIC TO SEARCH' : (res.source_platform || res.resource_type || 'RESOURCE');
 
     return `
-        <div class="resource-row flex items-center gap-3 rounded-xl border px-3 py-2.5" style="background: var(--bg-input); border-color: var(--border-soft);">
+        <div class="resource-row flex items-center gap-3 border px-3 py-2.5" style="background: var(--bg-input); border-color: var(--border-soft);">
             ${!isGoogleSearch ? `
                 <span class="check-box ${res.completed ? 'checked' : ''}" data-step-idx="${stepIdx}" data-res-idx="${resIdx}">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
@@ -250,9 +284,9 @@ function renderResourceRow(res, stepIdx, resIdx) {
                     </svg>
                 </span>
             ` : `
-                <!-- No checkbox for search topics -->
+                <!-- fallback search topic icon -->
                 <div class="w-[18px] h-[18px] flex-shrink-0 flex items-center justify-center opacity-50">
-                    <span class="text-xs">🔍</span>
+                    <span class="text-xs">*</span>
                 </div>
             `}
 
@@ -281,18 +315,18 @@ function renderStepCard(step, index) {
     const resources = step.resources || [];
     const doneResources = resources.filter(r => r.completed).length;
 
-    // Convert estimated_hours (from backend CurriculumNode) to minutes properly
+    // duration in minutes calculation
     const durationMinutes = step.estimated_minutes 
         ? step.estimated_minutes 
         : (step.estimated_hours ? Math.round(step.estimated_hours * 60) : 30);
 
-    // Step type badge formatting
+    // step type badges
     const stepType = (step.role || step.step_type || 'foundational').toLowerCase();
     const typeBadges = {
-        foundational: { label: 'Foundational', bg: '#1f2b4a', text: '#7f9fdb', border: '#262a3d' },
-        deep_dive: { label: 'Deep Dive', bg: '#3b1c4a', text: '#d3a0e8', border: '#4a265c' },
-        practice: { label: 'Practice', bg: '#1c3b2b', text: '#a0e8bc', border: '#265c3e' },
-        reference: { label: 'Reference', bg: '#3b321c', text: '#e8d3a0', border: '#5c4e26' }
+        foundational: { label: 'Foundational', bg: '#1f2b4a', text: '#6f97e0', border: '#191d32' },
+        deep_dive: { label: 'Deep Dive', bg: '#3b1c4a', text: '#d3a0e8', border: '#1c0d24' },
+        practice: { label: 'Practice', bg: '#1c3b2b', text: '#a0e8bc', border: '#103923' },
+        reference: { label: 'Reference', bg: '#3b321c', text: '#e8d3a0', border: '#30270e' }
     };
     const badge = typeBadges[stepType] || typeBadges.foundational;
 
@@ -344,7 +378,7 @@ function renderStepCard(step, index) {
     `;
 }
 
-// Event Listeners
+// click handlers
 function attachEventListeners() {
     document.querySelectorAll('.step-header').forEach(header => {
         header.addEventListener('click', (e) => {
@@ -410,12 +444,12 @@ groqKeyInput.value = getUserGroqKey();
 settingsToggle.addEventListener('click', () => settingsPanel.classList.toggle('hidden'));
 groqKeySave.addEventListener('click', () => {
     setUserGroqKey(groqKeyInput.value.trim());
-    groqKeyStatus.textContent = groqKeyInput.value.trim() ? 'Saved — using your key now.' : '';
+    groqKeyStatus.textContent = groqKeyInput.value.trim() ? 'Saved -> using your key now.' : '';
 });
 groqKeyClear.addEventListener('click', () => {
     groqKeyInput.value = '';
     setUserGroqKey('');
-    groqKeyStatus.textContent = 'Cleared — using default key.';
+    groqKeyStatus.textContent = 'Cleared -> using default key.';
 });
 
 function escapeHtml(str) {

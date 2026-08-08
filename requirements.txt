@@ -1,7 +1,10 @@
+fastapi
+uvicorn
+pydantic
+python-dotenv
+groq
 yt-dlp
 youtube-transcript-api
 chromadb
-pydantic
-fastapi
-uvicorn
 requests
+bs4

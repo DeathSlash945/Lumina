@@ -4,7 +4,6 @@ import logging
 from typing import List, Dict, Any, Optional
 
 log = logging.getLogger("lumina.vector_store")
-
 class VectorStore:
     def __init__(self):
         self.documents: List[Dict[str, Any]] = []
@@ -13,7 +12,7 @@ class VectorStore:
         self.b: float = 0.75
 
     def _tokenize(self, text: str) -> List[str]:
-        """Normalizes and tokenizes raw transcript text."""
+        #Normalizes and tokenizes raw transcript text lol.
         return re.findall(r'\b\w+\b', text.lower())
 
     def add_chunks(self, chunks: List[Dict[str, Any]]) -> None:
@@ -44,7 +43,7 @@ class VectorStore:
         self.avg_doc_len = (total_len / len(self.documents)) if self.documents else 0.0
 
     def _bm25_score(self, query_tokens: List[str], doc: Dict[str, Any]) -> float:
-        """Computes Okapi BM25 relevance score for exact technical term precision."""
+        """Computes BM25 relevance score for exact technical term precision."""
         if not doc["doc_len"] or self.avg_doc_len == 0:
             return 0.0
 
@@ -56,11 +55,9 @@ class VectorStore:
             tf = doc_tokens.count(token)
             if tf == 0:
                 continue
-
             # Document frequency across index
             df = sum(1 for d in self.documents if token in d["tokens"])
             idf = math.log((total_docs - df + 0.5) / (df + 0.5) + 1.0)
-
             # BM25 term weight calculation
             num = tf * (self.k1 + 1.0)
             den = tf + self.k1 * (1.0 - self.b + self.b * (doc["doc_len"] / self.avg_doc_len))
@@ -98,7 +95,6 @@ class VectorStore:
         """
         if not self.documents:
             return []
-
         query_tokens = self._tokenize(query)
         scored_results = []
 
@@ -106,13 +102,10 @@ class VectorStore:
             # Metadata pre-filtering
             if video_id_filter and doc["video_id"] != video_id_filter:
                 continue
-
             bm25 = self._bm25_score(query_tokens, doc)
             vector_sim = 0.0
-            
             if query_embedding and doc["embedding"]:
                 vector_sim = self._cosine_similarity(query_embedding, doc["embedding"])
-
             # Normalized hybrid fusion score
             hybrid_score = (alpha * bm25) + ((1.0 - alpha) * vector_sim)
 
