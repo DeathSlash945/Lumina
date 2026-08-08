@@ -52,7 +52,7 @@ The web and book providers are also a bit underwhelming but I'll try polishing t
    ```
 3. Access the web interface at 'http://localhost:8000'.
 
-To stop the container just type 'docker compose down' (you should already know this ig).
+To stop the container just type 'docker compose down' (you should already know this ig). Consequent runs can be easily done by docker compose up.
 (If you don't have docker or don't wanna do this see below)
 ### Do it yourself:
 ```bash
