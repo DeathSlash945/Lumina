@@ -22,10 +22,22 @@ class LLMClient:
         primary_model: str = "llama-3.3-70b-versatile",
         fallback_model: str = "llama-3.1-8b-instant"
     ):
-        self.api_key = api_key or os.getenv("GROQ_API_KEY")
+        # Stored as an explicit override only - NOT resolved against the env var here.
+        # If we resolved it here, an LLMClient created once at app startup (before any
+        # key had been saved via the UI) would permanently cache api_key=None and never
+        # notice a key saved later in the same process. See the `api_key` property below.
+        self._api_key_override = api_key
         self.primary_api_url = primary_api_url
         self.primary_model = primary_model
         self.fallback_model = fallback_model
+
+    @property
+    def api_key(self) -> str | None:
+        """Resolved fresh on every access: an explicit override wins, otherwise
+        read GROQ_API_KEY live from the environment so a key saved after this
+        client was constructed (e.g. via the DB-backed settings UI) is picked up
+        immediately rather than requiring a process restart."""
+        return self._api_key_override or os.getenv("GROQ_API_KEY")
 
     def _extract_json(self, raw_text: str) -> Union[Dict[str, Any], List[Any]]:
         """Cleans markdown formatting and extracts valid JSON payload."""
@@ -53,7 +65,6 @@ class LLMClient:
             "Content-Type": "application/json"
         }
 
-        # Groq requires the prompt or system prompt to contain the word 'json' when response_format is json_object
         sys_message = system_prompt if system_prompt else "You are an AI assistant that outputs structured json."
         if "json" not in sys_message.lower():
             sys_message += " Always respond in valid json format."
