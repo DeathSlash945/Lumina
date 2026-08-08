@@ -70,6 +70,28 @@
 </head>
 <body class="text-slate-100 min-h-screen font-sans antialiased" style="background: var(--bg-base); color: var(--text-primary);">
 
+    <!-- blocking overlay: shown until a Groq key is confirmed saved; app underneath is inert while this is up -->
+    <div id="key-gate-overlay" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4" style="background: rgba(6,7,12,0.94);">
+        <div class="w-full max-w-md rounded-sm p-6 border" style="background: var(--bg-panel); border-color: var(--border);">
+            <h2 class="text-sm font-bold uppercase tracking-widest mb-1.5" style="color: var(--purple-light);">Groq API Key Required</h2>
+            <p class="text-xs mb-4 leading-relaxed" style="color: var(--text-secondary);">
+                Lumina needs a Groq API key to generate learning paths. Get one free at
+                <a href="https://console.groq.com/keys" target="_blank" rel="noopener" style="color: var(--purple-light);">console.groq.com/keys</a>,
+                then paste it below to continue.
+            </p>
+            <form id="key-gate-form" class="flex gap-2">
+                <input type="password" id="key-gate-input" required placeholder="gsk_..." autocomplete="off"
+                       class="flex-1 rounded-sm px-4 py-2.5 text-sm border focus:outline-none focus:border-purple-500"
+                       style="background: var(--bg-input); border-color: var(--border); color: var(--text-primary);">
+                <button type="submit" id="key-gate-save" class="flat-btn px-4 py-2.5 rounded-sm text-sm font-semibold border"
+                        style="background: var(--purple-dark); border-color: var(--purple-mid); color: var(--purple-light);">
+                    <span>Save &amp; Continue</span>
+                </button>
+            </form>
+            <p id="key-gate-status" class="text-[11px] mt-2" style="color: #e08585;"></p>
+        </div>
+    </div>
+
     <div class="flex items-start">
         <!-- sidebar -->
         <aside id="sidebar" class="w-[280px] flex-shrink-0 h-screen sticky top-0 border-r overflow-y-auto"

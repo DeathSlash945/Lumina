@@ -6,7 +6,13 @@ services:
       - "8000:8000"
     environment:
       - LOG_LEVEL=INFO
-      - GROQ_API_KEY=${GROQ_API_KEY}
+      # optional: pre-seed the key so the app starts already unlocked.
+      # if unset, the UI will prompt for one on first load instead.
+      - GROQ_API_KEY=${GROQ_API_KEY:-}
+      - LUMINA_DB_PATH=/app/data/lumina_sessions.db
     volumes:
-      - ./lumina_sessions.db:/app/lumina_sessions.db
+      - lumina_data:/app/data
     restart: unless-stopped
+
+volumes:
+  lumina_data:

@@ -6,7 +6,10 @@ from retrieval.schemas import MasterLearningPath
 from retrieval.chat_agent import ChatSessionState
 
 log = logging.getLogger("lumina.db")
-DB_PATH = "lumina_sessions.db"
+DB_PATH = os.getenv("LUMINA_DB_PATH", "lumina_sessions.db")
+_db_dir = os.path.dirname(DB_PATH)
+if _db_dir:
+    os.makedirs(_db_dir, exist_ok=True)
 
 def init_db():
     with sqlite3.connect(DB_PATH) as conn:

@@ -26,6 +26,11 @@ const groqKeyStatus = document.getElementById('groq-key-status');
 const relatedWrap = document.getElementById('related-topics-wrap');
 const relatedList = document.getElementById('related-topics-list');
 
+const keyGateOverlay = document.getElementById('key-gate-overlay');
+const keyGateForm = document.getElementById('key-gate-form');
+const keyGateInput = document.getElementById('key-gate-input');
+const keyGateStatus = document.getElementById('key-gate-status');
+
 const mutationWrap = document.getElementById('mutation-wrap');
 const mutationForm = document.getElementById('mutation-form');
 const mutationInput = document.getElementById('mutation-input');
@@ -172,18 +177,49 @@ settingsToggle.addEventListener('click', () => {
     settingsPanel.classList.toggle('hidden');
 });
 
-// reflect whether a groq key is currently saved in the DB
+// reflect whether a groq key is currently saved in the DB, and gate the
+// whole app behind the overlay until one is present
 async function refreshGroqKeyStatus() {
+    let hasKey = false;
     try {
-        const { has_key } = await getGroqKeyStatus();
-        groqKeyStatus.style.color = has_key ? 'var(--success-text)' : 'var(--text-muted)';
-        groqKeyStatus.textContent = has_key
+        const status = await getGroqKeyStatus();
+        hasKey = !!status.has_key;
+        groqKeyStatus.style.color = hasKey ? 'var(--success-text)' : 'var(--text-muted)';
+        groqKeyStatus.textContent = hasKey
             ? 'A key is currently saved.'
             : 'No key saved yet.';
     } catch {
         groqKeyStatus.textContent = '';
     }
+
+    keyGateOverlay.classList.toggle('hidden', hasKey);
+    if (!hasKey) {
+        keyGateInput.focus();
+    }
+    return hasKey;
 }
+
+keyGateForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const key = keyGateInput.value.trim();
+    if (!key) return;
+
+    const btn = document.getElementById('key-gate-save');
+    btn.disabled = true;
+    btn.querySelector('span').innerText = 'Saving…';
+
+    try {
+        await saveGroqKeyToDB(key);
+        keyGateInput.value = '';
+        keyGateStatus.textContent = '';
+        await refreshGroqKeyStatus();
+    } catch (err) {
+        keyGateStatus.textContent = `Error: ${err.message}`;
+    } finally {
+        btn.disabled = false;
+        btn.querySelector('span').innerText = 'Save & Continue';
+    }
+});
 
 // form submission handler
 form.addEventListener('submit', async (e) => {
