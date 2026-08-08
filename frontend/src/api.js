@@ -1,13 +1,27 @@
 const API_BASE_URL = "/api/v1";
 
+let activeGroqKey = "";
+
+export function getUserGroqKey() {
+    return activeGroqKey;
+}
+
+export function setUserGroqKey(key) {
+    activeGroqKey = key ? key.trim() : "";
+}
+
 export function promptForGroqKey() {
     const key = prompt("Please enter your Groq API Key (It will be saved securely in the database):");
-    return key ? key.trim() : null;
+    if (key && key.trim()) {
+        setUserGroqKey(key.trim());
+        return key.trim();
+    }
+    return null;
 }
 
 // gets response from the generate endpoint
 export async function generateCurriculum(topic, expertiseLevel = "intermediate", contentPreference = "balanced", providedKey = null) {
-    let userKey = providedKey;
+    let userKey = providedKey || getUserGroqKey();
 
     const makeRequest = async (keyToSend) => {
         return await fetch(`${API_BASE_URL}/curriculum/generate`, {

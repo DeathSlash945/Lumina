@@ -444,12 +444,12 @@ groqKeyInput.value = getUserGroqKey();
 settingsToggle.addEventListener('click', () => settingsPanel.classList.toggle('hidden'));
 groqKeySave.addEventListener('click', () => {
     setUserGroqKey(groqKeyInput.value.trim());
-    groqKeyStatus.textContent = groqKeyInput.value.trim() ? 'Saved -> using your key now.' : '';
+    groqKeyStatus.textContent = groqKeyInput.value.trim() ? 'Key stored -> will sync to DB on request.' : '';
 });
 groqKeyClear.addEventListener('click', () => {
     groqKeyInput.value = '';
     setUserGroqKey('');
-    groqKeyStatus.textContent = 'Cleared -> using default key.';
+    groqKeyStatus.textContent = 'Cleared -> using default DB key.';
 });
 
 function escapeHtml(str) {
