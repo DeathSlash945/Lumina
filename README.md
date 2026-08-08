@@ -53,12 +53,11 @@ The web and book providers are also a bit underwhelming but I'll try polishing t
 3. Access the web interface at 'http://localhost:8000'.
 
 To stop the container just type 'docker compose down' (you should already know this ig).
-
+(If you don't have docker or don't wanna do this see below)
 ### Do it yourself:
-Run the command:
 ```bash
 uvicorn api.main:app --reload --port 8000
 ```
-inside the project folder to launch the uvicorn server for FastAPI yourself
+Run the command in terminal inside the project folder to launch the uvicorn server for FastAPI yourself
 (should have both uvicorn and other requirements needed for that)
 You should also look into requirements.txt for any library you don't have.
