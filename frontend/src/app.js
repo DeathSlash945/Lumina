@@ -1,4 +1,4 @@
-import { generateCurriculum, updateStepProgress, mutateCurriculum, getUserGroqKey, setUserGroqKey } from './api.js';
+import { generateCurriculum, updateStepProgress, mutateCurriculum, saveGroqKeyToDB, clearGroqKeyFromDB, getGroqKeyStatus } from './api.js';
 
 const STORAGE_KEY = 'lumina_saved_paths';
 
@@ -166,6 +166,24 @@ sidebarToggle.addEventListener('click', () => {
     sidebarOpen = !sidebarOpen;
     sidebar.classList.toggle('collapsed', !sidebarOpen);
 });
+
+// toggle API key settings panel visibility
+settingsToggle.addEventListener('click', () => {
+    settingsPanel.classList.toggle('hidden');
+});
+
+// reflect whether a groq key is currently saved in the DB
+async function refreshGroqKeyStatus() {
+    try {
+        const { has_key } = await getGroqKeyStatus();
+        groqKeyStatus.style.color = has_key ? 'var(--success-text)' : 'var(--text-muted)';
+        groqKeyStatus.textContent = has_key
+            ? 'A key is currently saved.'
+            : 'No key saved yet.';
+    } catch {
+        groqKeyStatus.textContent = '';
+    }
+}
 
 // form submission handler
 form.addEventListener('submit', async (e) => {
@@ -440,16 +458,33 @@ function attachEventListeners() {
     });
 }
 
-groqKeyInput.value = getUserGroqKey();
-settingsToggle.addEventListener('click', () => settingsPanel.classList.toggle('hidden'));
-groqKeySave.addEventListener('click', () => {
-    setUserGroqKey(groqKeyInput.value.trim());
-    groqKeyStatus.textContent = groqKeyInput.value.trim() ? 'Key stored -> will sync to DB on request.' : '';
+groqKeySave.addEventListener('click', async () => {
+    const key = groqKeyInput.value.trim();
+    if (!key) return;
+
+    try {
+        await saveGroqKeyToDB(key);
+        groqKeyInput.value = '';
+        groqKeyStatus.style.color = 'var(--success-text)';
+        groqKeyStatus.textContent = 'Saved successfully!';
+        await refreshGroqKeyStatus();
+    } catch (err) {
+        groqKeyStatus.style.color = '#e08585';
+        groqKeyStatus.textContent = `Error: ${err.message}`;
+    }
 });
-groqKeyClear.addEventListener('click', () => {
-    groqKeyInput.value = '';
-    setUserGroqKey('');
-    groqKeyStatus.textContent = 'Cleared -> using default DB key.';
+
+groqKeyClear.addEventListener('click', async () => {
+    try {
+        await clearGroqKeyFromDB();
+        groqKeyInput.value = '';
+        groqKeyStatus.style.color = 'var(--text-muted)';
+        groqKeyStatus.textContent = 'Key cleared.';
+        await refreshGroqKeyStatus();
+    } catch (err) {
+        groqKeyStatus.style.color = '#e08585';
+        groqKeyStatus.textContent = `Error: ${err.message}`;
+    }
 });
 
 function escapeHtml(str) {
@@ -464,3 +499,4 @@ function escapeAttr(str) {
 
 renderSidebar();
 updateProgressBar();
+refreshGroqKeyStatus();

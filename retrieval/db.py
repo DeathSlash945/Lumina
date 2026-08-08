@@ -1,4 +1,5 @@
 import sqlite3
+import os
 import json
 import logging
 from retrieval.schemas import MasterLearningPath
@@ -32,6 +33,10 @@ def init_db():
         """)
         conn.commit()
 
+        env_key = os.getenv("GROQ_API_KEY", "").strip()
+        if env_key and not load_groq_key():
+            save_groq_key(env_key)
+
 def save_groq_key(api_key: str):
     if not api_key or not api_key.strip():
         return
@@ -50,7 +55,15 @@ def load_groq_key() -> str | None:
         row = cursor.fetchone()
         if row:
             return row[0]
-    return None
+    return os.getenv("GROQ_API_KEY", "").strip() or None
+
+def clear_groq_key():
+    """Removes any DB-stored key. Note: does not affect a GROQ_API_KEY env var,
+    which load_groq_key() will still fall back to if one is set."""
+    with sqlite3.connect(DB_PATH) as conn:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM app_config WHERE key = 'groq_api_key'")
+        conn.commit()
 
 def save_session(session_id: str, session_state: ChatSessionState):
     with sqlite3.connect(DB_PATH) as conn:

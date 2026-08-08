@@ -1,48 +1,65 @@
 const API_BASE_URL = "/api/v1";
 
-let activeGroqKey = "";
+export async function saveGroqKeyToDB(key) {
+    const res = await fetch(`${API_BASE_URL}/config/groq-key`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ groq_api_key: key }),
+    });
 
-export function getUserGroqKey() {
-    return activeGroqKey;
-}
-
-export function setUserGroqKey(key) {
-    activeGroqKey = key ? key.trim() : "";
-}
-
-export function promptForGroqKey() {
-    const key = prompt("Please enter your Groq API Key (It will be saved securely in the database):");
-    if (key && key.trim()) {
-        setUserGroqKey(key.trim());
-        return key.trim();
+    if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        throw new Error(errorData.detail || "Failed to save API key to database.");
     }
-    return null;
+    return await res.json();
 }
 
-// gets response from the generate endpoint
-export async function generateCurriculum(topic, expertiseLevel = "intermediate", contentPreference = "balanced", providedKey = null) {
-    let userKey = providedKey || getUserGroqKey();
+export async function clearGroqKeyFromDB() {
+    const res = await fetch(`${API_BASE_URL}/config/groq-key`, {
+        method: "DELETE",
+    });
 
-    const makeRequest = async (keyToSend) => {
-        return await fetch(`${API_BASE_URL}/curriculum/generate`, {
+    if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        throw new Error(errorData.detail || "Failed to clear API key.");
+    }
+    return await res.json();
+}
+
+export async function getGroqKeyStatus() {
+    const res = await fetch(`${API_BASE_URL}/config/groq-key`);
+    if (!res.ok) {
+        return { has_key: false };
+    }
+    return await res.json();
+}
+
+export async function generateCurriculum(topic, expertiseLevel = "intermediate", contentPreference = "balanced") {
+    let response;
+
+    try {
+        response = await fetch(`${API_BASE_URL}/curriculum/generate`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
                 topic: topic,
                 expertise_level: expertiseLevel,
                 content_preference: contentPreference,
-                groq_api_key: keyToSend || null,
             }),
         });
-    };
+    } catch (err) {
+        throw new Error("Unable to connect to the backend server. Make sure Docker is running.");
+    }
 
-    let response = await makeRequest(userKey);
-
-    // If no key exists in DB (401), prompt user for key and retry once to save it to DB
+    // Handle 401 Unauthorized (No valid API key found in DB)
     if (response.status === 401) {
-        userKey = promptForGroqKey();
-        if (userKey) {
-            response = await makeRequest(userKey);
+        const key = prompt("Please enter your Groq API Key (It will be saved securely in the database):");
+        if (key && key.trim()) {
+            await saveGroqKeyToDB(key.trim());
+            // Retry request once saved to DB
+            return generateCurriculum(topic, expertiseLevel, contentPreference);
+        } else {
+            throw new Error("A valid Groq API Key is required to generate a path.");
         }
     }
 
@@ -54,7 +71,6 @@ export async function generateCurriculum(topic, expertiseLevel = "intermediate",
     return await response.json();
 }
 
-// updates completion status of a step
 export async function updateStepProgress(topic, stepIndex, status) {
     const response = await fetch(`${API_BASE_URL}/curriculum/${encodeURIComponent(topic)}/progress`, {
         method: "PATCH",
@@ -70,7 +86,6 @@ export async function updateStepProgress(topic, stepIndex, status) {
     return await response.json();
 }
 
-// sends user natural language prompt to mutate active path
 export async function mutateCurriculum(topic, message) {
     const response = await fetch(`${API_BASE_URL}/curriculum/mutate`, {
         method: "POST",

@@ -9,3 +9,4 @@ chromadb
 requests
 bs4
 db-sqlite3
+psycopg2-binary
