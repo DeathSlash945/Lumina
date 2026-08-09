@@ -9,3 +9,5 @@
 pytest.ini
 tests
 /api/__pycache__
+*.sqldb
+*.bin

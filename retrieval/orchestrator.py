@@ -10,6 +10,7 @@ from retrieval.providers.book_provider import MultiSourceBookProvider
 from retrieval.vector_store import VectorStore
 from retrieval.llm_client import LLMClient
 from retrieval.planner import CurriculumPlanner
+from retrieval.agents import CurriculumCriticAgent
 
 log = logging.getLogger("lumina.orchestrator")
 
@@ -27,7 +28,6 @@ class RetrievalService:
         self.llm = LLMClient()
         self.planner = CurriculumPlanner(self.llm)
 
-    # Terms that mark a video as belonging to the opposite skill tier.
     _BEGINNER_MARKERS = ("beginner", "noob", "for beginners", "101", "basics",
                           "introduction", "getting started", "easy", "crash course")
     _ADVANCED_MARKERS = ("advanced", "expert", "master", "pro tips",
@@ -41,7 +41,6 @@ class RetrievalService:
         }.get(level, "")
 
     def _level_mismatch(self, level: UserExpertise, title: str) -> bool:
-        """True if a video's title clearly targets the wrong skill tier."""
         t = title.lower()
         if level == UserExpertise.EXPERT and any(m in t for m in self._BEGINNER_MARKERS):
             return True
@@ -52,14 +51,12 @@ class RetrievalService:
     def _get_video_segments(self, main_topic: str, sub_topic: str = "", role: ContentRole = ContentRole.FOUNDATIONAL,
                              num_videos: int = 2, seen_urls: Optional[set] = None, level: str = "intermediate",
                              llm: "LLMClient" = None) -> List[PathResource]:
-        """Surfaces strictly relevant video material matching both main_topic and sub_topic."""
         if num_videos <= 0:
             return []
 
         if seen_urls is None:
             seen_urls = set()
 
-        # Sanitize sub_topic if ContentRole enum or raw enum text was passed
         if isinstance(sub_topic, ContentRole) or "ContentRole" in str(sub_topic) or not str(sub_topic).strip():
             clean_subtopic = main_topic
         else:
@@ -117,14 +114,12 @@ class RetrievalService:
         return resources
 
     def _get_text_or_book_resource(self, main_topic: str, sub_topic: str, role: ContentRole, num_texts: int, seen_urls: set) -> List[PathResource]:
-        """Retrieves verified books or text/documentation resources."""
         if num_texts <= 0:
             return []
 
         resources = []
         cleaned_query = f"{main_topic} {sub_topic}".replace("Platform", "").replace("Overview", "").replace("Introduction to", "").strip()
 
-        # MultiSourceBookProvider Search
         try:
             books = []
             if hasattr(self.book_provider, "search"):
@@ -146,7 +141,6 @@ class RetrievalService:
         except Exception as e:
             log.warning(f"Book provider search error for '{cleaned_query}': {e}")
 
-        # Web documentation/articles
         if len(resources) < num_texts:
             try:
                 texts = self.web_provider.search_text_resources(cleaned_query, role)
@@ -161,7 +155,6 @@ class RetrievalService:
             except Exception as e:
                 log.warning(f"Web provider search error for '{cleaned_query}': {e}")
 
-        # Safety net: normal google search fallback (Explicitly tagged for frontend topic styling)
         if not resources:
             formatted_topic = f"{main_topic} {sub_topic}".replace(' ', '+')
             target_url = f"https://www.google.com/search?q={formatted_topic}+official+documentation+guide"
@@ -190,7 +183,22 @@ class RetrievalService:
             llm = self.llm
             planner = self.planner
 
-        sub_topics_data = self.planner.structural_breakdown(topic, level)
+        critic_agent = CurriculumCriticAgent(llm)
+
+        # Agent 1: Initial Breakdown by CurriculumPlannerAgent
+        sub_topics_data = planner.structural_breakdown(topic, level)
+
+        # Agent 2: Critic Agent Loop (Up to 2 retries on invalid prerequisite structure)
+        max_retries = 2
+        for attempt in range(max_retries):
+            evaluation = critic_agent.evaluate_path(topic, level, sub_topics_data)
+            if evaluation.get("is_valid", True):
+                log.info(f"Critic Agent approved curriculum path on attempt {attempt + 1}")
+                break
+            
+            critique_note = evaluation.get("feedback", "Adjust prerequisite sequence.")
+            log.warning(f"Critic rejected draft (attempt {attempt + 1}): {critique_note}. Re-planning...")
+            sub_topics_data = planner.structural_breakdown(topic, level, critique_feedback=critique_note)
 
         role_sequence = [
             ContentRole.FOUNDATIONAL,
@@ -211,11 +219,12 @@ class RetrievalService:
         nodes = []
         seen_urls = set()
 
+        # Agent 3: Retrieval Specialist Phase (Binds video & text links)
         for idx, sub_item in enumerate(sub_topics_data):
-            # Parse dict or fallback to string
             if isinstance(sub_item, dict):
                 sub_title = sub_item.get("title", f"Step {idx + 1}")
-                step_type_str = sub_item.get("step_type", "foundational").upper()
+                # Clean enum conversion (handles hyphenated or spaced inputs)
+                step_type_str = str(sub_item.get("step_type", "foundational")).upper().replace("-", "_").replace(" ", "_")
                 step_role = getattr(ContentRole, step_type_str, role_sequence[idx % len(role_sequence)])
                 num_videos = sub_item.get("recommended_videos", 2 if step_role == ContentRole.PRACTICE else 1)
                 num_texts = sub_item.get("recommended_texts", 1)
@@ -229,18 +238,16 @@ class RetrievalService:
                 custom_minutes = None
                 rationale = ""
 
-            # Explicit check for Text/Books media focus choices
             pref_name = getattr(preference, "name", str(preference)).upper()
             if any(k in pref_name for k in ("TEXT", "BOOK", "READ", "DOC")):
                 num_texts = max(num_texts, 2)
-                num_videos = 0  # Completely restrict videos if text/books approach selected
+                num_videos = 0
             elif "VIDEO" in pref_name and "TEXT" not in pref_name:
                 num_videos = max(num_videos, 2)
                 num_texts = 0
 
             collected_resources = []
 
-            # Gather dynamic number of videos & text resources
             if num_videos > 0:
                 videos = self._get_video_segments(
                     main_topic=topic,
@@ -257,7 +264,6 @@ class RetrievalService:
                 texts = self._get_text_or_book_resource(topic, sub_title, step_role, num_texts, seen_urls)
                 collected_resources.extend(texts)
 
-            # Calculate dynamic step duration
             if custom_minutes:
                 calculated_minutes = int(custom_minutes)
                 calculated_hours = round(calculated_minutes / 60.0, 1)
@@ -278,6 +284,7 @@ class RetrievalService:
             )
 
             nodes.append(node)
+
         related_topics = planner.generate_related_topics(topic, sub_topics_data)
 
         path = MasterLearningPath(
@@ -291,7 +298,6 @@ class RetrievalService:
         return path
 
     def update_step_status(self, topic: str, step_index: int, new_status: CompletionStatus) -> bool:
-        """Updates the completion status of a step within an active curriculum path."""
         if topic not in self.paths:
             return False
 

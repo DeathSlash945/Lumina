@@ -1,7 +1,7 @@
-# Pydantic models shared across.
+# Pydantic models shared across Lumina retrieval pipeline.
 from __future__ import annotations
 from enum import Enum
-from typing import Optional, Literal, Union, Dict, Any, List
+from typing import Optional, Union, Dict, Any, List
 from pydantic import BaseModel, Field
 
 # --- User preference types ---
@@ -35,6 +35,22 @@ class CompletionStatus(str, Enum):
     IN_PROGRESS = "in_progress"
     COMPLETED = "completed"
 
+# --- Agent validation schemas ---
+class StepPlan(BaseModel):
+    title: str
+    step_type: str = Field(default="foundational", description="foundational | deep_dive | practice | reference")
+    estimated_minutes: int = Field(default=45, description="Estimated duration in minutes")
+    resource_rationale: str = Field(default="", description="Brief reason for resource allocation")
+    recommended_videos: int = Field(default=1, ge=0, le=4)
+    recommended_texts: int = Field(default=1, ge=0, le=4)
+
+class PlannerOutput(BaseModel):
+    sub_topics: List[StepPlan]
+
+class CriticResult(BaseModel):
+    is_valid: bool
+    feedback: str = Field(description="Detailed critique notes if invalid, or approval message if valid.")
+
 # --- Unified resource containers ---
 class PathResource(BaseModel):
     """A unified resource wrapper capable of tracking videos, books, or web docs."""
@@ -43,10 +59,8 @@ class PathResource(BaseModel):
     url: str
     role: ContentRole
     justification: str
-    # Video-specific markers
     start_time: Optional[float] = None
     end_time: Optional[float] = None
-    # Text-specific markers
     reading_time_minutes: Optional[int] = None
     source_domain: Optional[str] = None
     status: CompletionStatus = CompletionStatus.NOT_STARTED
@@ -84,10 +98,10 @@ class CurriculumNode(BaseModel):
     estimated_hours: float
     estimated_minutes: Optional[int] = None
     role: ContentRole = ContentRole.FOUNDATIONAL
-    resources: list[PathResource]
+    resources: List[PathResource]
     status: CompletionStatus = CompletionStatus.NOT_STARTED
     resource_rationale: Optional[str] = ""
-    
+
     @property
     def progress_percentage(self) -> float:
         if not self.resources:
@@ -95,14 +109,13 @@ class CurriculumNode(BaseModel):
         completed = sum(1 for r in self.resources if r.status == CompletionStatus.COMPLETED)
         return round((completed / len(self.resources)) * 100.0, 1)
 
-# main learning path scheme
 class MasterLearningPath(BaseModel):
     main_topic: str
     expertise_level: UserExpertise
     preference: ContentPreference
-    steps: list[CurriculumNode]
-    related_topics: list[str] = Field(default_factory=list)
-    
+    steps: List[CurriculumNode]
+    related_topics: List[str] = Field(default_factory=list)
+
     @property
     def total_progress(self) -> float:
         if not self.steps:

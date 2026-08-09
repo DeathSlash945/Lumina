@@ -22,10 +22,6 @@ class LLMClient:
         primary_model: str = "llama-3.3-70b-versatile",
         fallback_model: str = "llama-3.1-8b-instant"
     ):
-        # Stored as an explicit override only - NOT resolved against the env var here.
-        # If we resolved it here, an LLMClient created once at app startup (before any
-        # key had been saved via the UI) would permanently cache api_key=None and never
-        # notice a key saved later in the same process. See the `api_key` property below.
         self._api_key_override = api_key
         self.primary_api_url = primary_api_url
         self.primary_model = primary_model
@@ -33,30 +29,22 @@ class LLMClient:
 
     @property
     def api_key(self) -> str | None:
-        """Resolved fresh on every access: an explicit override wins, otherwise
-        read GROQ_API_KEY live from the environment so a key saved after this
-        client was constructed (e.g. via the DB-backed settings UI) is picked up
-        immediately rather than requiring a process restart."""
         return self._api_key_override or os.getenv("GROQ_API_KEY")
 
     def _extract_json(self, raw_text: str) -> Union[Dict[str, Any], List[Any]]:
-        """Cleans markdown formatting and extracts valid JSON payload."""
         cleaned = re.sub(r'```json\s*|\s*```', '', raw_text).strip()
-        
         json_match = re.search(r'(\{.*\}|\[.*\])', cleaned, re.DOTALL)
         if json_match:
             cleaned = json_match.group(1)
-            
         return json.loads(cleaned)
 
     @retry(
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=1, min=2, max=6),
         retry=retry_if_exception_type(LLMProviderError),
-        reraise=True  # Reraise underlying LLMProviderError so query_with_failover catches the true cause
+        reraise=True
     )
     def _call_provider(self, prompt: str, model: str, system_prompt: str = "") -> str:
-        """Executes HTTP POST request to Groq API using OpenAI-compatible format."""
         if not self.api_key:
             raise LLMProviderError("GROQ_API_KEY is missing. Ensure it is set in environment variables.")
 
@@ -97,7 +85,6 @@ class LLMClient:
             raise LLMProviderError(f"Groq API call failed for model '{model}': {err_msg}")
 
     def query_with_failover(self, prompt: str, system_prompt: str = "") -> str:
-        """Executes prompt against primary model, failing over to fallback model on error."""
         try:
             return self._call_provider(prompt, self.primary_model, system_prompt)
         except Exception as primary_err:
@@ -109,24 +96,22 @@ class LLMClient:
                 return "{}"
 
     def _chat_json(self, prompt: str, system_prompt: str = "") -> Union[Dict[str, Any], List[Any]]:
-        """Public JSON query interface used by planner and retrieval modules."""
         raw_response = self.query_with_failover(prompt, system_prompt)
-        
         try:
             return self._extract_json(raw_response)
         except (json.JSONDecodeError, TypeError) as err:
             log.warning(f"Failed to parse Groq JSON response: {err}. Returning empty dict.")
             return {}
 
-    def score_for_role(self, resource_text: str, role: str, *args, **kwargs) -> tuple[float, str]:
-        """
-        Scores resource suitability for a given learning path role.
-        Accepts *args and **kwargs to maintain signature compatibility with orchestrator callers.
-        """
+    def score_for_role(self, subtopic: str, role: Any, resource_title: str = "", *args, **kwargs) -> tuple[float, str]:
+        """Scores resource suitability for a given learning path role and target subtopic."""
+        role_str = getattr(role, "value", str(role))
         prompt = (
-            f"Rate the relevance (0.0 to 1.0) of this content for role '{role}':\n"
-            f"{resource_text[:500]}\n"
-            f"Respond in JSON format: {{\"score\": float, \"reason\": string}}"
+            f"Target Subtopic: '{subtopic}'\n"
+            f"Target Learning Role: '{role_str}'\n"
+            f"Candidate Resource Title: '{resource_title}'\n\n"
+            f"Rate the relevance (0.0 to 1.0) of this content for teaching this subtopic.\n"
+            f"Respond strictly in JSON: {{\"score\": float, \"reason\": string}}"
         )
         res = self._chat_json(prompt)
         
