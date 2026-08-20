@@ -19,8 +19,8 @@ class LLMClient:
         self, 
         api_key: str = None,
         primary_api_url: str = "https://api.groq.com/openai/v1/chat/completions",
-        primary_model: str = "llama-3.3-70b-versatile",
-        fallback_model: str = "llama-3.1-8b-instant"
+        primary_model: str = "openai/gpt-oss-120b",
+        fallback_model: str = "qwen/qwen3.6-27b"
     ):
         self._api_key_override = api_key
         self.primary_api_url = primary_api_url
