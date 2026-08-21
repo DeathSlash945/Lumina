@@ -30,6 +30,8 @@ The web and book providers are also a bit underwhelming but I'll try polishing t
 | Frontend | Vanilla JS (ES Modules) and tailwind CSS |
 | Deployment | Docker and Docker Compose |
 
+## Check out the deployed web version: https://lumina-qzry.onrender.com/
+
 ## Quickstart with Docker
 
 ### Prerequisites
